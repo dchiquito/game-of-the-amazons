@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter, Write};
 
+#[derive(Clone, Copy, Debug)]
 enum Dim {
     A,
     B,
@@ -45,7 +46,16 @@ impl From<usize> for Dim {
         }
     }
 }
+impl Dim {
+    fn less_than(&self) -> Vec<Self> {
+        (0..usize::from(self)).rev().map(Self::from).collect()
+    }
+    fn greater_than(&self) -> Vec<Self> {
+        (usize::from(self) + 1..10).map(Self::from).collect()
+    }
+}
 
+#[derive(Clone, Copy)]
 struct Coord(Dim, Dim);
 impl Display for Coord {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -76,10 +86,15 @@ impl Display for Coord {
         Ok(())
     }
 }
+impl std::fmt::Debug for Coord {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self, f)
+    }
+}
 impl From<&Coord> for usize {
     fn from(coord: &Coord) -> Self {
-        let row: usize = (&coord.0).into();
-        let col: usize = (&coord.1).into();
+        let col: usize = (&coord.0).into();
+        let row: usize = (&coord.1).into();
         (row * 10) + col
     }
 }
@@ -142,10 +157,15 @@ struct Board {
     // Track what state every square on the board is in
     tiles: [TileState; 100],
     // Lookup table for valid moves
-    // moves: [[Vec<Coord>; 8]; 100],
+    moves: Vec<[Vec<Coord>; 8]>,
+}
+
+impl Board {
+    pub fn reachable_squares(&self, coord: &Coord) {}
 }
 
 impl Default for Board {
+    #[allow(clippy::needless_range_loop)]
     fn default() -> Self {
         // Set up the pieces
         let whites = [c!(a4), c!(d1), c!(g1), c!(j4)];
@@ -162,17 +182,61 @@ impl Default for Board {
             tiles[idx] = TileState::Black;
         }
         // Calculate the move lookup table
+        let moves = (0..100)
+            .map(|idx| {
+                let coord = Coord::from(idx);
+                let left = coord.0.less_than();
+                let right = coord.0.greater_than();
+                let down = coord.1.less_than();
+                let up = coord.1.greater_than();
+                [
+                    // Left
+                    left.iter().map(|&x| Coord(x, coord.1)).collect(),
+                    // Up+Left
+                    left.iter()
+                        .zip(up.iter())
+                        .map(|(&x, &y)| Coord(x, y))
+                        .collect(),
+                    // Up
+                    up.iter().map(|&y| Coord(coord.0, y)).collect(),
+                    // Up+Right
+                    right
+                        .iter()
+                        .zip(up.iter())
+                        .map(|(&x, &y)| Coord(x, y))
+                        .collect(),
+                    // Right
+                    right.iter().map(|&x| Coord(x, coord.1)).collect(),
+                    // Down+Right
+                    right
+                        .iter()
+                        .zip(down.iter())
+                        .map(|(&x, &y)| Coord(x, y))
+                        .collect(),
+                    // Down
+                    down.iter().map(|&y| Coord(coord.0, y)).collect(),
+                    // Down+Left
+                    left.iter()
+                        .zip(down.iter())
+                        .map(|(&x, &y)| Coord(x, y))
+                        .collect(),
+                ]
+            })
+            .collect();
         Self {
             whites,
             blacks,
             tiles,
+            moves,
         }
     }
 }
 
 impl Display for Board {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("   a b c d e f g h i j\n")?;
         for i in (0..10).rev() {
+            f.write_str(format!("{:<2} ", i + 1).as_ref())?;
             for j in 0..10 {
                 f.write_str(match self.tiles[(j * 10) + i] {
                     TileState::Empty => ". ",
@@ -190,4 +254,7 @@ impl Display for Board {
 fn main() {
     let board = Board::default();
     println!("{}", board);
+    let s = c!(f4);
+    println!("{s} {}", usize::from(&s));
+    println!("{:?}", board.moves[usize::from(&s)]);
 }
