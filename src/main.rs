@@ -1,4 +1,5 @@
 use lazy_static::lazy_static;
+use rand::seq::SliceRandom;
 use std::{
     fmt::{Display, Formatter, Write},
     ops::Range,
@@ -344,15 +345,26 @@ fn moves_heuristic(board: &Board) -> i32 {
     let black_moves = board.black_moves().len() as i32;
     white_moves - black_moves
 }
-// fn random_heuristic() -> i32 {
-//     rand::random()
-// }
+fn random_heuristic() -> i32 {
+    rand::random()
+}
 
 fn main() {
-    let board = Board::default();
-    println!("{}", board);
-    for nb in board.white_moves() {
-        println!("{nb}");
+    let mut board = Board::default();
+    loop {
+        let white_moves = board.white_moves();
+        if white_moves.is_empty() {
+            println!("Black wins");
+            break;
+        }
+        board = white_moves.choose(&mut rand::thread_rng()).unwrap().clone();
+        println!("{board}");
+        let black_moves = board.black_moves();
+        if black_moves.is_empty() {
+            println!("White wins");
+            break;
+        }
+        board = black_moves.choose(&mut rand::thread_rng()).unwrap().clone();
+        println!("{board}");
     }
-    println!("{}", board.white_moves().len());
 }
