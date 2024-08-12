@@ -12,9 +12,9 @@ enum Dim {
     I,
     J,
 }
-impl Dim {
-    pub fn idx(&self) -> usize {
-        match self {
+impl From<&Dim> for usize {
+    fn from(dim: &Dim) -> Self {
+        match dim {
             Dim::A => 0,
             Dim::B => 1,
             Dim::C => 2,
@@ -25,6 +25,23 @@ impl Dim {
             Dim::H => 7,
             Dim::I => 8,
             Dim::J => 9,
+        }
+    }
+}
+impl From<usize> for Dim {
+    fn from(idx: usize) -> Self {
+        match idx {
+            0 => Dim::A,
+            1 => Dim::B,
+            2 => Dim::C,
+            3 => Dim::D,
+            4 => Dim::E,
+            5 => Dim::F,
+            6 => Dim::G,
+            7 => Dim::H,
+            8 => Dim::I,
+            9 => Dim::J,
+            _ => panic!("{idx} is out of bounds"),
         }
     }
 }
@@ -59,9 +76,19 @@ impl Display for Coord {
         Ok(())
     }
 }
-impl Coord {
-    pub fn idx(&self) -> usize {
-        (self.0.idx() * 10) + self.1.idx()
+impl From<&Coord> for usize {
+    fn from(coord: &Coord) -> Self {
+        let row: usize = (&coord.0).into();
+        let col: usize = (&coord.1).into();
+        (row * 10) + col
+    }
+}
+impl From<usize> for Coord {
+    fn from(idx: usize) -> Self {
+        assert!(idx < 100);
+        let row = idx % 10;
+        let col = idx / 10;
+        Coord(row.into(), col.into())
     }
 }
 
@@ -127,10 +154,12 @@ impl Default for Board {
         let mut tiles = [TileState::Empty; 100];
         // Put the pieces on it
         for w in whites.iter() {
-            tiles[w.idx()] = TileState::White;
+            let idx: usize = w.into();
+            tiles[idx] = TileState::White;
         }
         for b in blacks.iter() {
-            tiles[b.idx()] = TileState::Black;
+            let idx: usize = b.into();
+            tiles[idx] = TileState::Black;
         }
         // Calculate the move lookup table
         Self {
