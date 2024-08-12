@@ -1,5 +1,8 @@
 use lazy_static::lazy_static;
-use std::fmt::{Display, Formatter, Write};
+use std::{
+    fmt::{Display, Formatter, Write},
+    ops::Range,
+};
 
 #[derive(Clone, Copy, Debug)]
 enum Dim {
@@ -143,7 +146,7 @@ macro_rules! c {
     }};
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum TileState {
     Empty,
     White,
@@ -151,41 +154,125 @@ enum TileState {
     Arrow,
 }
 
+#[derive(Clone)]
 struct Board {
     // Track where the amazons are so we don't need to search the board for them
-    whites: [Coord; 4],
-    blacks: [Coord; 4],
+    pieces: [Coord; 8],
     // Track what state every square on the board is in
     tiles: [TileState; 100],
-}
-
-impl Board {
-    pub fn reachable_squares(&self, coord: &Coord) {}
 }
 
 impl Default for Board {
     #[allow(clippy::needless_range_loop)]
     fn default() -> Self {
         // Set up the pieces
-        let whites = [c!(a4), c!(d1), c!(g1), c!(j4)];
-        let blacks = [c!(a7), c!(d10), c!(g10), c!(j7)];
+        let pieces = [
+            c!(a4),
+            c!(d1),
+            c!(g1),
+            c!(j4),
+            c!(a7),
+            c!(d10),
+            c!(g10),
+            c!(j7),
+        ];
         // Set up an empty board
         let mut tiles = [TileState::Empty; 100];
         // Put the pieces on it
-        for w in whites.iter() {
+        for w in pieces[0..4].iter() {
             let idx: usize = w.into();
             tiles[idx] = TileState::White;
         }
-        for b in blacks.iter() {
+        for b in pieces[4..8].iter() {
             let idx: usize = b.into();
             tiles[idx] = TileState::Black;
         }
         // Calculate the move lookup table
-        Self {
-            whites,
-            blacks,
-            tiles,
+        Self { pieces, tiles }
+    }
+}
+
+impl Board {
+    pub fn reachable_squares(&self, coord: &Coord) -> ReachableIterator<'_> {
+        ReachableIterator::new(self, coord)
+    }
+    pub fn moves(&self, range: Range<usize>, color: TileState) -> Vec<Board> {
+        let mut moves = vec![];
+        let mut new_board = self.clone();
+        for piece_idx in range {
+            // Pick up the piece to clear the path for any arrows fired backward
+            new_board.tiles[usize::from(&new_board.pieces[piece_idx])] = TileState::Empty;
+            for movement in self.reachable_squares(&self.pieces[piece_idx]) {
+                for arrow in new_board.reachable_squares(&movement) {
+                    let mut newest_board = new_board.clone();
+                    newest_board.pieces[piece_idx] = movement;
+                    newest_board.tiles[usize::from(&movement)] = color;
+                    newest_board.tiles[usize::from(&arrow)] = TileState::Arrow;
+                    moves.push(newest_board);
+                }
+            }
+            // Put the piece back after we've found all of its moves
+            new_board.tiles[usize::from(&new_board.pieces[piece_idx])] = color;
         }
+        moves
+    }
+    pub fn white_moves(&self) -> Vec<Board> {
+        self.moves(0..4, TileState::White)
+    }
+    pub fn black_moves(&self) -> Vec<Board> {
+        self.moves(4..8, TileState::Black)
+    }
+    // TODO not useful
+    pub fn apply_move(&mut self, piece_index: usize, move_coord: &Coord, arrow_coord: &Coord) {
+        // Clear the formerly occupied square
+        self.tiles[usize::from(&self.pieces[piece_index])] = TileState::Empty;
+        // Move the piece
+        self.pieces[piece_index] = *move_coord;
+        // Mark the new square the appropriate color
+        self.tiles[usize::from(move_coord)] = if piece_index < 4 {
+            TileState::White
+        } else {
+            TileState::Black
+        };
+        // Place the arrow
+        self.tiles[usize::from(arrow_coord)] = TileState::Arrow;
+    }
+}
+
+struct ReachableIterator<'a> {
+    board: &'a Board,
+    coord: usize,
+    dir: usize,
+    idx: usize,
+}
+impl<'a> ReachableIterator<'a> {
+    fn new(board: &'a Board, coord: &Coord) -> Self {
+        Self {
+            board,
+            coord: usize::from(coord),
+            dir: 0,
+            idx: 0,
+        }
+    }
+}
+impl<'a> Iterator for ReachableIterator<'a> {
+    type Item = Coord;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.dir < 8 {
+            let moves_in_dir = &MOVES[self.coord][self.dir];
+            if self.idx < moves_in_dir.len() {
+                let mov = moves_in_dir[self.idx];
+                if self.board.tiles[usize::from(&mov)] == TileState::Empty {
+                    self.idx += 1;
+                    return Some(mov);
+                }
+            }
+            // We have reached the edge of the board or encountered an obstruction
+            self.dir += 1;
+            self.idx = 0;
+        }
+        None
     }
 }
 
@@ -239,7 +326,7 @@ impl Display for Board {
         for i in (0..10).rev() {
             f.write_str(format!("{:<2} ", i + 1).as_ref())?;
             for j in 0..10 {
-                f.write_str(match self.tiles[(j * 10) + i] {
+                f.write_str(match self.tiles[(i * 10) + j] {
                     TileState::Empty => ". ",
                     TileState::White => "W ",
                     TileState::Black => "B ",
@@ -252,10 +339,20 @@ impl Display for Board {
     }
 }
 
+fn moves_heuristic(board: &Board) -> i32 {
+    let white_moves = board.white_moves().len() as i32;
+    let black_moves = board.black_moves().len() as i32;
+    white_moves - black_moves
+}
+// fn random_heuristic() -> i32 {
+//     rand::random()
+// }
+
 fn main() {
     let board = Board::default();
     println!("{}", board);
-    let s = c!(f4);
-    println!("{s} {}", usize::from(&s));
-    println!("{:?}", MOVES[usize::from(&s)]);
+    for nb in board.white_moves() {
+        println!("{nb}");
+    }
+    println!("{}", board.white_moves().len());
 }
