@@ -1,3 +1,4 @@
+use lazy_static::lazy_static;
 use std::fmt::{Display, Formatter, Write};
 
 #[derive(Clone, Copy, Debug)]
@@ -156,8 +157,6 @@ struct Board {
     blacks: [Coord; 4],
     // Track what state every square on the board is in
     tiles: [TileState; 100],
-    // Lookup table for valid moves
-    moves: Vec<[Vec<Coord>; 8]>,
 }
 
 impl Board {
@@ -182,7 +181,16 @@ impl Default for Board {
             tiles[idx] = TileState::Black;
         }
         // Calculate the move lookup table
-        let moves = (0..100)
+        Self {
+            whites,
+            blacks,
+            tiles,
+        }
+    }
+}
+
+lazy_static! {
+        static ref MOVES: Vec<[Vec<Coord>; 8]> = (0..100)
             .map(|idx| {
                 let coord = Coord::from(idx);
                 let left = coord.0.less_than();
@@ -223,13 +231,6 @@ impl Default for Board {
                 ]
             })
             .collect();
-        Self {
-            whites,
-            blacks,
-            tiles,
-            moves,
-        }
-    }
 }
 
 impl Display for Board {
@@ -256,5 +257,5 @@ fn main() {
     println!("{}", board);
     let s = c!(f4);
     println!("{s} {}", usize::from(&s));
-    println!("{:?}", board.moves[usize::from(&s)]);
+    println!("{:?}", MOVES[usize::from(&s)]);
 }
