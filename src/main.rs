@@ -1,11 +1,13 @@
+use clap::Parser;
 use lazy_static::lazy_static;
 use rand::seq::SliceRandom;
+use std::io;
 use std::{
     fmt::{Display, Formatter, Write},
     ops::Range,
 };
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Dim {
     A,
     B,
@@ -60,7 +62,7 @@ impl Dim {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 struct Coord(Dim, Dim);
 impl Display for Coord {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -111,10 +113,9 @@ impl From<usize> for Coord {
         Coord(row.into(), col.into())
     }
 }
-
-macro_rules! c {
-    ($x:expr) => {{
-        let mut s = stringify!($x).chars();
+impl From<&str> for Coord {
+    fn from(value: &str) -> Self {
+        let mut s = value.chars();
         let row = s.next().expect("Invalid row");
         let col = s.collect::<String>();
         let row = match row {
@@ -144,7 +145,13 @@ macro_rules! c {
             _ => panic!("Invalid col"),
         };
         Coord(row, col)
-    }};
+    }
+}
+
+macro_rules! c {
+    ($x:expr) => {
+        Coord::from(stringify!($x).as_ref())
+    };
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -153,6 +160,22 @@ enum TileState {
     White,
     Black,
     Arrow,
+}
+
+struct Move(Coord, Coord, Coord, Board);
+impl Move {
+    pub fn notation(&self) -> String {
+        format!("{}-{}/{}", self.0, self.1, self.2)
+    }
+    pub fn parse_notation(notation: &str) -> Option<(Coord, Coord, Coord)> {
+        let mut iter = notation.trim().split('-');
+        let piece = iter.next()?;
+        let remainder = iter.next()?;
+        let mut iter = remainder.split('/');
+        let mov = iter.next()?;
+        let arrow = iter.next()?;
+        Some((Coord::from(piece), Coord::from(mov), Coord::from(arrow)))
+    }
 }
 
 #[derive(Clone)]
@@ -197,7 +220,7 @@ impl Board {
     pub fn reachable_squares(&self, coord: &Coord) -> ReachableIterator<'_> {
         ReachableIterator::new(self, coord)
     }
-    pub fn moves(&self, range: Range<usize>, color: TileState) -> Vec<Board> {
+    pub fn moves(&self, range: Range<usize>, color: TileState) -> Vec<Move> {
         let mut moves = vec![];
         let mut new_board = self.clone();
         for piece_idx in range {
@@ -209,7 +232,12 @@ impl Board {
                     newest_board.pieces[piece_idx] = movement;
                     newest_board.tiles[usize::from(&movement)] = color;
                     newest_board.tiles[usize::from(&arrow)] = TileState::Arrow;
-                    moves.push(newest_board);
+                    moves.push(Move(
+                        new_board.pieces[piece_idx],
+                        movement,
+                        arrow,
+                        newest_board,
+                    ));
                 }
             }
             // Put the piece back after we've found all of its moves
@@ -217,26 +245,31 @@ impl Board {
         }
         moves
     }
-    pub fn white_moves(&self) -> Vec<Board> {
+    pub fn white_moves(&self) -> Vec<Move> {
         self.moves(0..4, TileState::White)
     }
-    pub fn black_moves(&self) -> Vec<Board> {
+    pub fn black_moves(&self) -> Vec<Move> {
         self.moves(4..8, TileState::Black)
     }
-    // TODO not useful
-    pub fn apply_move(&mut self, piece_index: usize, move_coord: &Coord, arrow_coord: &Coord) {
+
+    pub fn apply_move(&mut self, notation: &str) {
+        let (piece_coord, move_coord, arrow_coord) =
+            Move::parse_notation(notation).expect("Invalid notation");
+        let piece_index = (0..8)
+            .find(|idx: &usize| self.pieces[*idx] == piece_coord)
+            .expect("No piece to move");
         // Clear the formerly occupied square
         self.tiles[usize::from(&self.pieces[piece_index])] = TileState::Empty;
         // Move the piece
-        self.pieces[piece_index] = *move_coord;
+        self.pieces[piece_index] = move_coord;
         // Mark the new square the appropriate color
-        self.tiles[usize::from(move_coord)] = if piece_index < 4 {
+        self.tiles[usize::from(&move_coord)] = if piece_index < 4 {
             TileState::White
         } else {
             TileState::Black
         };
         // Place the arrow
-        self.tiles[usize::from(arrow_coord)] = TileState::Arrow;
+        self.tiles[usize::from(&arrow_coord)] = TileState::Arrow;
     }
 }
 
@@ -349,22 +382,69 @@ fn random_heuristic() -> i32 {
     rand::random()
 }
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(long)]
+    black: bool,
+}
+
 fn main() {
+    let args = Args::parse();
+    let mut input = String::new();
+    let stdin = io::stdin();
     let mut board = Board::default();
     loop {
-        let white_moves = board.white_moves();
-        if white_moves.is_empty() {
-            println!("Black wins");
-            break;
+        if !args.black {
+            let white_moves = board.white_moves();
+            if white_moves.is_empty() {
+                eprintln!("Black wins");
+                break;
+            }
+            let mov = white_moves.choose(&mut rand::thread_rng()).unwrap();
+            println!("{}", mov.notation());
+            board = mov.3.clone();
+        } else {
+            stdin.read_line(&mut input).expect("Error reading input");
+            board.apply_move(&input);
         }
-        board = white_moves.choose(&mut rand::thread_rng()).unwrap().clone();
-        println!("{board}");
-        let black_moves = board.black_moves();
-        if black_moves.is_empty() {
-            println!("White wins");
-            break;
+        eprintln!("{board}");
+        if args.black {
+            let black_moves = board.black_moves();
+            if black_moves.is_empty() {
+                println!("White wins");
+                break;
+            }
+            let mov = black_moves.choose(&mut rand::thread_rng()).unwrap();
+            println!("{}", mov.notation());
+            board = mov.3.clone();
+        } else {
+            stdin.read_line(&mut input).expect("Error reading input");
+            board.apply_move(&input);
         }
-        board = black_moves.choose(&mut rand::thread_rng()).unwrap().clone();
-        println!("{board}");
+        eprintln!("{board}");
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_notation() {
+        let all_coords: Vec<Coord> = (0..100).map(|idx: usize| Coord::from(idx)).collect();
+        let board: Board = Default::default();
+        for a in all_coords.iter() {
+            for b in all_coords.iter() {
+                for c in all_coords.iter() {
+                    let mov = Move(*a, *b, *c, board.clone());
+                    let notation = mov.notation();
+                    let (aa, bb, cc) = Move::parse_notation(&notation).expect("no fails pls");
+                    assert_eq!(a, &aa);
+                    assert_eq!(b, &bb);
+                    assert_eq!(c, &cc);
+                }
+            }
+        }
     }
 }
