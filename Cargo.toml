@@ -2,6 +2,6 @@
 
 members = [
   "core",
-  # "godot_binding",
+   "godot_binding",
 ]
 resolver = "2"

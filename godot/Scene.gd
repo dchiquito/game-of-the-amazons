@@ -4,6 +4,8 @@ extends Node2D
 enum SquareState {WHITE, BLACK, ARROW, EMPTY}
 
 @onready var board_squares = $BoardSquares
+@onready var black_cli = $BlackCli
+@onready var white_cli = $WhiteCli
 var square_scene = preload("res://Square.tscn")
 var squares = {}
 
@@ -25,9 +27,10 @@ func _ready():
 			squares[x][y] = square
 			square.click.connect(_on_click)
 			square.cancel.connect(_on_cancel)
-
-	print("ya")
-	print(OS.get_cmdline_args())
+	if black_cli.start_black():
+		black_player_type = PlayerType.CLI
+	if white_cli.start_white():
+		white_player_type = PlayerType.CLI
 	_new_game()
 
 func _new_game():
@@ -47,18 +50,17 @@ func _on_click(x: int, y: int, state: SquareState):
 	if (whites_turn and white_player_type == PlayerType.UI) or ((not whites_turn) and black_player_type == PlayerType.UI):
 		handle_input(x, y, state)
 
-var piece = null
-var move = null
+var piece: Array[int] = []
+var move: Array[int] = []
 func handle_input(x: int, y: int, state: SquareState):
-	print("input ",x,y,state,piece,move)
-	if piece == null:
+	if piece == []:
 		# Selecting a piece
 		if (whites_turn and state == SquareState.WHITE) or ((not whites_turn) and state == SquareState.BLACK):
 			piece = [x, y]
 			return
 		else:
 			reset_move_state()
-	elif move == null:
+	elif move == []:
 		# Selecting a move for a piece
 		if state == SquareState.EMPTY:
 			# TODO check for legal move
@@ -77,12 +79,38 @@ func handle_input(x: int, y: int, state: SquareState):
 		if state == SquareState.EMPTY:
 			# TODO check for legal move
 			squares[x][y].mark_arrow()
-			# TODO emit move to CLI player
+			if whites_turn:
+				black_cli.notify_of_move(piece, move, Array([x,y], TYPE_INT, &"", null))
+			else:
+				white_cli.notify_of_move(piece, move, Array([x,y], TYPE_INT, &"", null))
 			whites_turn = not whites_turn
-			piece = null
-			move = null
+			piece = []
+			move = []
+			check_for_cli_move()
 		else:
 			reset_move_state()
+
+func check_for_cli_move():
+	if whites_turn and white_player_type == PlayerType.CLI:
+		var packed_move = white_cli.get_move()
+		var piece = packed_move[0]
+		var move = packed_move[1]
+		var arrow = packed_move[2]
+		squares[piece[0]][piece[1]].mark_empty()
+		squares[move[0]][move[1]].mark_white()
+		squares[arrow[0]][arrow[1]].mark_arrow()
+	elif (not whites_turn) and black_player_type == PlayerType.CLI:
+		var packed_move = black_cli.get_move()
+		var piece = packed_move[0]
+		var move = packed_move[1]
+		var arrow = packed_move[2]
+		squares[piece[0]][piece[1]].mark_empty()
+		squares[move[0]][move[1]].mark_black()
+		squares[arrow[0]][arrow[1]].mark_arrow()
+	else:
+		return
+	whites_turn = not whites_turn
+	check_for_cli_move()
 
 func _on_cancel():
 	reset_move_state()
@@ -95,5 +123,5 @@ func reset_move_state():
 			squares[piece[0]][piece[1]].mark_white()
 		else:
 			squares[piece[0]][piece[1]].mark_black()
-	piece = null
-	move = null
+	piece = []
+	move = []

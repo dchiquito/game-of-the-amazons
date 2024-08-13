@@ -8,3 +8,7 @@ script = ExtResource("1_v5q47")
 [node name="Pieces" type="Node2D" parent="."]
 
 [node name="BoardSquares" type="Node2D" parent="."]
+
+[node name="BlackCli" type="CliInterface" parent="."]
+
+[node name="WhiteCli" type="CliInterface" parent="."]
