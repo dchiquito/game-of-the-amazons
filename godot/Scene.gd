@@ -116,7 +116,7 @@ func _on_cancel():
 	reset_move_state()
 
 func reset_move_state():
-	if move != null:
+	if move != []:
 		# Reset the temporary move
 		squares[move[0]][move[1]].mark_empty()
 		if whites_turn:
