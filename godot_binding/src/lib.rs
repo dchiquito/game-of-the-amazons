@@ -95,7 +95,6 @@ impl CliInterface {
 
     #[func]
     fn notify_of_move(&mut self, piece: Array<i64>, mov: Array<i64>, arrow: Array<i64>) {
-        println!("called notify_of_move {piece} {mov} {arrow}");
         let piece = Coord(
             Dim::from(usize::try_from(piece.get(0).unwrap()).unwrap()),
             Dim::from(usize::try_from(piece.get(1).unwrap()).unwrap()),
@@ -109,7 +108,7 @@ impl CliInterface {
             Dim::from(usize::try_from(arrow.get(1).unwrap()).unwrap()),
         );
         let move_string = format!("{}\n", Move::notation_for(&piece, &mov, &arrow));
-        println!("notifying cli of {move_string}");
+        println!("Notifying CLI of {move_string}");
         if let Some((child_stdin, _)) = &mut self.child_io {
             child_stdin
                 .write_all(move_string.as_bytes())
@@ -119,12 +118,12 @@ impl CliInterface {
 
     #[func]
     fn get_move(&mut self) -> VariantArray {
-        println!("Getting a move from the CLI");
         if let Some((_, child_stdout)) = &mut self.child_io {
             let mut buf = [0; 1024];
             if let Ok(size) = child_stdout.read(&mut buf) {
                 let notation =
                     String::from_utf8(buf[0..size].to_vec()).expect("Failed utf8 string encoding");
+                println!("CLI plays {notation}");
                 if let Some((piece, mov, arrow)) = Move::parse_notation(&notation) {
                     return varray![
                         array![usize::from(&piece.0) as i64, usize::from(&piece.1) as i64],

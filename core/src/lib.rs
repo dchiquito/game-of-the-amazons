@@ -253,11 +253,8 @@ impl Board {
     }
 
     pub fn apply_move(&mut self, notation: &str) {
-        eprintln!("Aplyingggg {notation}!");
         let (piece_coord, move_coord, arrow_coord) =
             Move::parse_notation(notation).expect("Invalid notation");
-        eprintln!("Curious! {:?}", self.pieces);
-        eprintln!("Indeed! {} {} {}", piece_coord, move_coord, arrow_coord);
         let piece_index = (0..8)
             .find(|idx: &usize| self.pieces[*idx] == piece_coord)
             .expect("No piece to move");
