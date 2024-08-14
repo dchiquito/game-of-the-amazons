@@ -169,14 +169,18 @@ impl Move {
     pub fn notation_for(piece: &Coord, mov: &Coord, arrow: &Coord) -> String {
         format!("{}-{}/{}", piece, mov, arrow)
     }
-    pub fn parse_notation(notation: &str) -> Option<Move > {
+    pub fn parse_notation(notation: &str) -> Option<Move> {
         let mut iter = notation.trim().split('-');
         let piece = iter.next()?;
         let remainder = iter.next()?;
         let mut iter = remainder.split('/');
         let mov = iter.next()?;
         let arrow = iter.next()?;
-        Some(Move(Coord::from(piece), Coord::from(mov), Coord::from(arrow)))
+        Some(Move(
+            Coord::from(piece),
+            Coord::from(mov),
+            Coord::from(arrow),
+        ))
     }
 }
 
@@ -222,22 +226,25 @@ impl Board {
     pub fn reachable_squares(&self, coord: &Coord) -> ReachableIterator<'_> {
         ReachableIterator::new(self, coord)
     }
-    pub fn moves<'a>(&'a self, range: Range<usize>) -> impl Iterator<Item = Move> + 'a{
+    pub fn moves<'a>(&'a self, range: Range<usize>) -> impl Iterator<Item = Move> + 'a {
         MoveIterator::new(self, range)
     }
     pub fn white_moves<'a>(&'a self) -> impl Iterator<Item = Move> + 'a {
         self.moves(0..4)
     }
-    pub fn black_moves<'a>(&'a self) -> impl Iterator<Item = Move> + 'a{
+    pub fn black_moves<'a>(&'a self) -> impl Iterator<Item = Move> + 'a {
         self.moves(4..8)
     }
-    pub fn moves_boards<'a>(&'a self, range: Range<usize>) -> impl Iterator<Item = (Move,Board)> + 'a{
+    pub fn moves_boards<'a>(
+        &'a self,
+        range: Range<usize>,
+    ) -> impl Iterator<Item = (Move, Board)> + 'a {
         MoveBoardIterator::new(self, range)
     }
-    pub fn white_moves_boards<'a>(&'a self) -> impl Iterator<Item = (Move,Board)> + 'a {
+    pub fn white_moves_boards<'a>(&'a self) -> impl Iterator<Item = (Move, Board)> + 'a {
         self.moves_boards(0..4)
     }
-    pub fn black_moves_boards<'a>(&'a self) -> impl Iterator<Item = (Move,Board)> + 'a{
+    pub fn black_moves_boards<'a>(&'a self) -> impl Iterator<Item = (Move, Board)> + 'a {
         self.moves_boards(4..8)
     }
 
@@ -314,7 +321,7 @@ impl<'a> Iterator for MoveBoardIterator<'a> {
             if let Some(mov) = self.piece_iterator.next() {
                 let mut board = self.board.clone();
                 board.apply_move(&mov);
-                return Some((mov,board));
+                return Some((mov, board));
             } else if let Some(piece_idx) = self.range.next() {
                 self.piece_iterator = PieceMoveIterator::new(self.board, piece_idx);
             } else {
@@ -525,13 +532,13 @@ pub fn minimax_white_heuristic(board: &Board) -> i32 {
         } else if maxing {
             board
                 .white_moves_boards()
-                .map(|(_,board)| minimax(&board, depth - 1, !maxing, c))
+                .map(|(_, board)| minimax(&board, depth - 1, !maxing, c))
                 .max()
                 .unwrap_or(i32::MIN)
         } else {
             board
                 .black_moves_boards()
-                .map(|(_,board)| minimax(&board, depth - 1, !maxing, c))
+                .map(|(_, board)| minimax(&board, depth - 1, !maxing, c))
                 .min()
                 .unwrap_or(i32::MAX)
         }
@@ -541,17 +548,17 @@ pub fn minimax_white_heuristic(board: &Board) -> i32 {
     x
 }
 
-pub fn heuristic_white<T, F>(board: &Board, heuristic: F) -> Option<(Move,Board)>
+pub fn heuristic_white<T, F>(board: &Board, heuristic: F) -> Option<(Move, Board)>
 where
     T: Ord,
     F: Fn(&Board) -> T,
 {
     board
         .white_moves_boards()
-        .max_by_key(|(_,board)| heuristic(board))
+        .max_by_key(|(_, board)| heuristic(board))
 }
 
-pub fn heuristic_black<T, F>(board: &Board, heuristic: F) -> Option<(Move,Board)>
+pub fn heuristic_black<T, F>(board: &Board, heuristic: F) -> Option<(Move, Board)>
 where
     T: Ord + Neg,
     F: Fn(&Board) -> T,
@@ -559,5 +566,5 @@ where
 {
     board
         .black_moves_boards()
-        .max_by_key(|(_,board)| -heuristic(board))
+        .max_by_key(|(_, board)| -heuristic(board))
 }
