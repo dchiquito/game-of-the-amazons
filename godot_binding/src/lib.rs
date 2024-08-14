@@ -1,8 +1,8 @@
 use amazons_core::{Coord, Dim, Move};
 use godot::classes::{INode, Node, Os};
 use godot::prelude::*;
-use std::io::{BufReader, Read, Write};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::io::{BufRead, BufReader, Write};
+use std::process::{ChildStdin, ChildStdout, Command, Stdio};
 
 struct MyExtension;
 
@@ -15,7 +15,7 @@ struct CliInterface {
     #[base]
     _base: Base<Node>,
 
-    child_io: Option<(ChildStdin, ChildStdout)>,
+    child_io: Option<(ChildStdin, BufReader<ChildStdout>)>,
 }
 
 #[godot_api]
@@ -52,7 +52,7 @@ impl CliInterface {
                 .stdout(Stdio::piped())
                 .spawn()
                 .expect("Failed to start black player");
-            self.child_io = Some((child.stdin.unwrap(), child.stdout.unwrap()));
+            self.child_io = Some((child.stdin.unwrap(), BufReader::new(child.stdout.unwrap())));
             true
         } else {
             false
@@ -81,7 +81,7 @@ impl CliInterface {
                 .stdout(Stdio::piped())
                 .spawn()
                 .expect("Failed to start black player");
-            self.child_io = Some((child.stdin.unwrap(), child.stdout.unwrap()));
+            self.child_io = Some((child.stdin.unwrap(), BufReader::new(child.stdout.unwrap())));
             true
         } else {
             false
@@ -119,19 +119,21 @@ impl CliInterface {
     #[func]
     fn get_move(&mut self) -> VariantArray {
         if let Some((_, child_stdout)) = &mut self.child_io {
-            let mut buf = [0; 1024];
-            if let Ok(size) = child_stdout.read(&mut buf) {
-                let notation =
-                    String::from_utf8(buf[0..size].to_vec()).expect("Failed utf8 string encoding");
+            let mut notation = String::new();
+            if child_stdout.read_line(&mut notation).is_ok() {
                 println!("CLI plays {notation}");
-                if let Some((piece, mov, arrow)) = Move::parse_notation(&notation) {
+                if let Some(Move(piece, mov, arrow)) = Move::parse_notation(&notation) {
                     return varray![
                         array![usize::from(&piece.0) as i64, usize::from(&piece.1) as i64],
                         array![usize::from(&mov.0) as i64, usize::from(&mov.1) as i64],
                         array![usize::from(&arrow.0) as i64, usize::from(&arrow.1) as i64]
                     ];
                 }
+            } else {
+                panic!("Failed to read_line")
             }
+        } else {
+            println!("Failed to unlock child_stdout");
         }
         panic!("Failed to get a move from the CLI")
     }

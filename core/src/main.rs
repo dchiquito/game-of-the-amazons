@@ -1,6 +1,5 @@
 use amazons_core::*;
 use clap::Parser;
-use rand::seq::SliceRandom;
 use std::io;
 
 #[derive(Parser, Debug)]
@@ -17,33 +16,32 @@ fn main() {
     let mut board = Board::default();
     loop {
         if !args.black {
-            let white_moves = board.white_moves();
-            if white_moves.is_empty() {
-                eprintln!("Black wins");
+            if let Some((mov, new_board)) = heuristic_white(&board, minimax_white_heuristic) {
+                println!("{}", mov.notation());
+                board = new_board;
+            } else {
+                println!("Black wins");
                 break;
             }
-            let mov = white_moves.choose(&mut rand::thread_rng()).unwrap();
-            println!("{}", mov.notation());
-            board = mov.3.clone();
         } else {
             input.clear();
             stdin.read_line(&mut input).expect("Error reading input");
-            board.apply_move(&input);
+            board.apply_move(&Move::parse_notation(&input).expect("Failed to parse notation"));
         }
         eprintln!("{board}");
         if args.black {
-            let black_moves = board.black_moves();
-            if black_moves.is_empty() {
+            if let Some((mov, new_board)) = heuristic_black(&board, moves_heuristic) {
+                println!("{}", mov.notation());
+                board = new_board;
+            } else {
                 println!("White wins");
                 break;
             }
-            let mov = black_moves.choose(&mut rand::thread_rng()).unwrap();
-            println!("{}", mov.notation());
-            board = mov.3.clone();
         } else {
             input.clear();
             stdin.read_line(&mut input).expect("Error reading input");
-            board.apply_move(&input);
+            eprintln!("Read line [{input}]");
+            board.apply_move(&Move::parse_notation(&input).expect("Failed to parse notation"));
         }
         eprintln!("{board}");
     }

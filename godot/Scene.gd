@@ -32,6 +32,7 @@ func _ready():
 	if white_cli.start_white():
 		white_player_type = PlayerType.CLI
 	_new_game()
+	check_for_cli_move()
 
 func _new_game():
 	for x in range(0, 10):

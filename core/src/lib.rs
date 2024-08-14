@@ -1,7 +1,8 @@
 use lazy_static::lazy_static;
+use rand::seq::IteratorRandom;
 use std::{
     fmt::{Display, Formatter, Write},
-    ops::Range,
+    ops::{Neg, Range},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -159,7 +160,8 @@ pub enum TileState {
     Arrow,
 }
 
-pub struct Move(pub Coord, pub Coord, pub Coord, pub Board);
+#[derive(Clone)]
+pub struct Move(pub Coord, pub Coord, pub Coord);
 impl Move {
     pub fn notation(&self) -> String {
         Self::notation_for(&self.0, &self.1, &self.2)
@@ -167,14 +169,14 @@ impl Move {
     pub fn notation_for(piece: &Coord, mov: &Coord, arrow: &Coord) -> String {
         format!("{}-{}/{}", piece, mov, arrow)
     }
-    pub fn parse_notation(notation: &str) -> Option<(Coord, Coord, Coord)> {
+    pub fn parse_notation(notation: &str) -> Option<Move > {
         let mut iter = notation.trim().split('-');
         let piece = iter.next()?;
         let remainder = iter.next()?;
         let mut iter = remainder.split('/');
         let mov = iter.next()?;
         let arrow = iter.next()?;
-        Some((Coord::from(piece), Coord::from(mov), Coord::from(arrow)))
+        Some(Move(Coord::from(piece), Coord::from(mov), Coord::from(arrow)))
     }
 }
 
@@ -220,41 +222,27 @@ impl Board {
     pub fn reachable_squares(&self, coord: &Coord) -> ReachableIterator<'_> {
         ReachableIterator::new(self, coord)
     }
-    pub fn moves(&self, range: Range<usize>, color: TileState) -> Vec<Move> {
-        let mut moves = vec![];
-        let mut new_board = self.clone();
-        for piece_idx in range {
-            // Pick up the piece to clear the path for any arrows fired backward
-            new_board.tiles[usize::from(&new_board.pieces[piece_idx])] = TileState::Empty;
-            for movement in self.reachable_squares(&self.pieces[piece_idx]) {
-                for arrow in new_board.reachable_squares(&movement) {
-                    let mut newest_board = new_board.clone();
-                    newest_board.pieces[piece_idx] = movement;
-                    newest_board.tiles[usize::from(&movement)] = color;
-                    newest_board.tiles[usize::from(&arrow)] = TileState::Arrow;
-                    moves.push(Move(
-                        new_board.pieces[piece_idx],
-                        movement,
-                        arrow,
-                        newest_board,
-                    ));
-                }
-            }
-            // Put the piece back after we've found all of its moves
-            new_board.tiles[usize::from(&new_board.pieces[piece_idx])] = color;
-        }
-        moves
+    pub fn moves<'a>(&'a self, range: Range<usize>) -> impl Iterator<Item = Move> + 'a{
+        MoveIterator::new(self, range)
     }
-    pub fn white_moves(&self) -> Vec<Move> {
-        self.moves(0..4, TileState::White)
+    pub fn white_moves<'a>(&'a self) -> impl Iterator<Item = Move> + 'a {
+        self.moves(0..4)
     }
-    pub fn black_moves(&self) -> Vec<Move> {
-        self.moves(4..8, TileState::Black)
+    pub fn black_moves<'a>(&'a self) -> impl Iterator<Item = Move> + 'a{
+        self.moves(4..8)
+    }
+    pub fn moves_boards<'a>(&'a self, range: Range<usize>) -> impl Iterator<Item = (Move,Board)> + 'a{
+        MoveBoardIterator::new(self, range)
+    }
+    pub fn white_moves_boards<'a>(&'a self) -> impl Iterator<Item = (Move,Board)> + 'a {
+        self.moves_boards(0..4)
+    }
+    pub fn black_moves_boards<'a>(&'a self) -> impl Iterator<Item = (Move,Board)> + 'a{
+        self.moves_boards(4..8)
     }
 
-    pub fn apply_move(&mut self, notation: &str) {
-        let (piece_coord, move_coord, arrow_coord) =
-            Move::parse_notation(notation).expect("Invalid notation");
+    pub fn apply_move(&mut self, mov: &Move) {
+        let Move(piece_coord, move_coord, arrow_coord) = *mov;
         let piece_index = (0..8)
             .find(|idx: &usize| self.pieces[*idx] == piece_coord)
             .expect("No piece to move");
@@ -270,6 +258,148 @@ impl Board {
         };
         // Place the arrow
         self.tiles[usize::from(&arrow_coord)] = TileState::Arrow;
+    }
+}
+
+pub struct MoveIterator<'a> {
+    board: &'a Board,
+    range: Range<usize>,
+    piece_iterator: PieceMoveIterator<'a>,
+}
+impl<'a> MoveIterator<'a> {
+    fn new(board: &'a Board, mut range: Range<usize>) -> Self {
+        let piece_idx = range.next().unwrap();
+        Self {
+            board,
+            range,
+            piece_iterator: PieceMoveIterator::new(board, piece_idx),
+        }
+    }
+}
+impl<'a> Iterator for MoveIterator<'a> {
+    type Item = Move;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(mov) = self.piece_iterator.next() {
+                return Some(mov);
+            } else if let Some(piece_idx) = self.range.next() {
+                self.piece_iterator = PieceMoveIterator::new(self.board, piece_idx);
+            } else {
+                return None;
+            }
+        }
+    }
+}
+pub struct MoveBoardIterator<'a> {
+    board: &'a Board,
+    range: Range<usize>,
+    piece_iterator: PieceMoveIterator<'a>,
+}
+impl<'a> MoveBoardIterator<'a> {
+    fn new(board: &'a Board, mut range: Range<usize>) -> Self {
+        let piece_idx = range.next().unwrap();
+        Self {
+            board,
+            range,
+            piece_iterator: PieceMoveIterator::new(board, piece_idx),
+        }
+    }
+}
+impl<'a> Iterator for MoveBoardIterator<'a> {
+    type Item = (Move, Board);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(mov) = self.piece_iterator.next() {
+                let mut board = self.board.clone();
+                board.apply_move(&mov);
+                return Some((mov,board));
+            } else if let Some(piece_idx) = self.range.next() {
+                self.piece_iterator = PieceMoveIterator::new(self.board, piece_idx);
+            } else {
+                return None;
+            }
+        }
+    }
+}
+
+pub struct PieceMoveIterator<'a> {
+    board: &'a Board,
+    piece_idx: usize,
+    piece_start: usize,
+    piece_dir: usize,
+    piece_dist: usize,
+    arrow_dir: usize,
+    arrow_dist: usize,
+}
+impl<'a> PieceMoveIterator<'a> {
+    fn new(board: &'a Board, piece_idx: usize) -> Self {
+        Self {
+            board,
+            piece_idx,
+            piece_start: usize::from(&board.pieces[piece_idx]),
+            piece_dir: 0,
+            piece_dist: 0,
+            arrow_dir: 0,
+            arrow_dist: 0,
+        }
+    }
+}
+impl<'a> Iterator for PieceMoveIterator<'a> {
+    type Item = Move;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Keep trying directions to start walking
+        while self.piece_dir < 8 {
+            let moves_in_dir = &MOVES[self.piece_start][self.piece_dir];
+            // Keep walking forward until we hit the edge of the board
+            while self.piece_dist < moves_in_dir.len() {
+                let arrow_start = usize::from(&moves_in_dir[self.piece_dist]);
+                if self.board.tiles[arrow_start] == TileState::Empty {
+                    // Keep trying directions to fire
+                    while self.arrow_dir < 8 {
+                        let shots_in_dir = &MOVES[arrow_start][self.arrow_dir];
+                        if self.arrow_dist < shots_in_dir.len() {
+                            let arrow = shots_in_dir[self.arrow_dist];
+                            let arrow = usize::from(&arrow);
+                            // We are allowed to shoot through the formerly occupied square
+                            if arrow == self.piece_start
+                                || self.board.tiles[arrow] == TileState::Empty
+                            {
+                                // We have a valid move and a valid arrow
+                                // Increment the arrows flight distance
+                                self.arrow_dist += 1;
+                                return Some(Move(
+                                    self.board.pieces[self.piece_idx],
+                                    Coord::from(arrow_start),
+                                    Coord::from(arrow),
+                                ));
+                            }
+                        }
+                        // If we have not returned before reaching here, then we have reached the edge
+                        // of the board or a encountered a blocking piece or arrow.
+                        // Rotate and try a new direction
+                        self.arrow_dir += 1;
+                        self.arrow_dist = 0;
+                    }
+                    // If we have reached here without returning, we have done a full 360 with the
+                    // arrow.
+                    // Time to advance to the next square.
+                    self.piece_dist += 1;
+                } else {
+                    // We have walked into a piece or arrow, stop walking forward.
+                    break;
+                }
+            }
+            // If we have reached here without returning, then we have walked to the edge of the
+            // board or encountered a blocking piece or arrow.
+            // Rotate and try a new direction
+            self.piece_dir += 1;
+            self.piece_dist = 0;
+        }
+        // We have done a full 360, there's nothing more to check
+        None
     }
 }
 
@@ -373,11 +503,61 @@ impl Display for Board {
     }
 }
 
-fn moves_heuristic(board: &Board) -> i32 {
-    let white_moves = board.white_moves().len() as i32;
-    let black_moves = board.black_moves().len() as i32;
+pub fn random_white(board: &Board) -> Option<Move> {
+    board.black_moves().choose(&mut rand::thread_rng())
+}
+pub fn random_black(board: &Board) -> Option<Move> {
+    board.white_moves().choose(&mut rand::thread_rng())
+}
+
+pub fn moves_heuristic(board: &Board) -> i32 {
+    let white_moves = board.white_moves().count() as i32;
+    let black_moves = board.black_moves().count() as i32;
     white_moves - black_moves
 }
-fn random_heuristic() -> i32 {
-    rand::random()
+
+pub fn minimax_white_heuristic(board: &Board) -> i32 {
+    let mut count = 0;
+    fn minimax(board: &Board, depth: usize, maxing: bool, c: &mut i32) -> i32 {
+        *c += 1;
+        if depth == 0 {
+            moves_heuristic(board)
+        } else if maxing {
+            board
+                .white_moves_boards()
+                .map(|(_,board)| minimax(&board, depth - 1, !maxing, c))
+                .max()
+                .unwrap_or(i32::MIN)
+        } else {
+            board
+                .black_moves_boards()
+                .map(|(_,board)| minimax(&board, depth - 1, !maxing, c))
+                .min()
+                .unwrap_or(i32::MAX)
+        }
+    }
+    let x = minimax(board, 1, true, &mut count);
+    eprintln!("TOTAL MINIIMAXING: {count}");
+    x
+}
+
+pub fn heuristic_white<T, F>(board: &Board, heuristic: F) -> Option<(Move,Board)>
+where
+    T: Ord,
+    F: Fn(&Board) -> T,
+{
+    board
+        .white_moves_boards()
+        .max_by_key(|(_,board)| heuristic(board))
+}
+
+pub fn heuristic_black<T, F>(board: &Board, heuristic: F) -> Option<(Move,Board)>
+where
+    T: Ord + Neg,
+    F: Fn(&Board) -> T,
+    <T as Neg>::Output: Ord,
+{
+    board
+        .black_moves_boards()
+        .max_by_key(|(_,board)| -heuristic(board))
 }
