@@ -226,25 +226,22 @@ impl Board {
     pub fn reachable_squares(&self, coord: &Coord) -> ReachableIterator<'_> {
         ReachableIterator::new(self, coord)
     }
-    pub fn moves<'a>(&'a self, range: Range<usize>) -> impl Iterator<Item = Move> + 'a {
+    pub fn moves(&self, range: Range<usize>) -> impl Iterator<Item = Move> + '_ {
         MoveIterator::new(self, range)
     }
-    pub fn white_moves<'a>(&'a self) -> impl Iterator<Item = Move> + 'a {
+    pub fn white_moves(&self) -> impl Iterator<Item = Move> + '_ {
         self.moves(0..4)
     }
-    pub fn black_moves<'a>(&'a self) -> impl Iterator<Item = Move> + 'a {
+    pub fn black_moves(&self) -> impl Iterator<Item = Move> + '_ {
         self.moves(4..8)
     }
-    pub fn moves_boards<'a>(
-        &'a self,
-        range: Range<usize>,
-    ) -> impl Iterator<Item = (Move, Board)> + 'a {
+    pub fn moves_boards(&self, range: Range<usize>) -> impl Iterator<Item = (Move, Board)> + '_ {
         MoveBoardIterator::new(self, range)
     }
-    pub fn white_moves_boards<'a>(&'a self) -> impl Iterator<Item = (Move, Board)> + 'a {
+    pub fn white_moves_boards(&self) -> impl Iterator<Item = (Move, Board)> + '_ {
         self.moves_boards(0..4)
     }
-    pub fn black_moves_boards<'a>(&'a self) -> impl Iterator<Item = (Move, Board)> + 'a {
+    pub fn black_moves_boards(&self) -> impl Iterator<Item = (Move, Board)> + '_ {
         self.moves_boards(4..8)
     }
 
