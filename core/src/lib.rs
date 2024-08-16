@@ -520,29 +520,171 @@ pub fn moves_heuristic(board: &Board) -> i32 {
     white_moves - black_moves
 }
 
+pub fn area_heuristic(board: &Board) -> i32 {
+    let mut white_reachable = [false; 100];
+    let mut white_sum = 0;
+    for piece in board.pieces[0..4].iter() {
+        for reachable in board.reachable_squares(piece) {
+            let reachable = usize::from(&reachable);
+            if !white_reachable[reachable] {
+                white_reachable[reachable] = true;
+                white_sum += 1;
+            }
+        }
+    }
+    let mut black_reachable = [false; 100];
+    let mut black_sum = 0;
+    for piece in board.pieces[4..8].iter() {
+        for reachable in board.reachable_squares(piece) {
+            let reachable = usize::from(&reachable);
+            if !black_reachable[reachable] {
+                black_reachable[reachable] = true;
+                black_sum += 1;
+            }
+        }
+    }
+    white_sum - black_sum
+}
+pub fn reachable_heuristic(board: &Board) -> i32 {
+    #[derive(Copy, Clone, Eq, PartialEq)]
+    enum By {
+        White(usize),
+        Black(usize),
+        Both,
+        Dunno,
+    }
+    let mut cells = [By::Dunno; 100];
+    let mut white_seeds: Vec<usize> = board.pieces[0..4].iter().map(usize::from).collect();
+    let mut black_seeds: Vec<usize> = board.pieces[4..8].iter().map(usize::from).collect();
+    let mut moves = 1;
+    let mut white_cells = 0;
+    let mut black_cells = 0;
+    while (!white_seeds.is_empty()) && (!black_seeds.is_empty()) {
+        let mut new_white_seeds = Vec::with_capacity(20); // TODO what capacity
+        for seed in white_seeds.iter() {
+            // Check to make sure black didn't get to this spot at the same time
+            if cells[*seed] != By::Both {
+                for mov in board.reachable_squares(&Coord::from(*seed)) {
+                    let mov = usize::from(&mov);
+                    if cells[mov] == By::Dunno {
+                        cells[mov] = By::White(moves);
+                        new_white_seeds.push(mov);
+                        white_cells += 1;
+                    }
+                }
+            }
+        }
+        white_seeds = new_white_seeds;
+        let mut new_black_seeds = Vec::with_capacity(20); // TODO what capacity
+        for seed in black_seeds.iter() {
+            for mov in board.reachable_squares(&Coord::from(*seed)) {
+                let mov = usize::from(&mov);
+                if cells[mov] == By::Dunno {
+                    cells[mov] = By::Black(moves);
+                    new_black_seeds.push(mov);
+                    black_cells += 1;
+                // Now check if black and white get there at the same time
+                } else if cells[mov] == By::White(moves) {
+                    cells[mov] = By::Both;
+                    white_cells -= 1;
+                }
+            }
+        }
+        black_seeds = new_black_seeds;
+        moves += 1;
+    }
+    white_cells - black_cells
+}
+
 pub fn minimax_white_heuristic(board: &Board) -> i32 {
-    let mut count = 0;
-    fn minimax(board: &Board, depth: usize, maxing: bool, c: &mut i32) -> i32 {
+    const MAX_COUNT: i32 = 100000;
+    const HEURISTIC: fn(&Board) -> i32 = reachable_heuristic;
+    fn minimax(
+        board: &Board,
+        depth: usize,
+        maxing: bool,
+        alpha: i32,
+        beta: i32,
+        c: &mut i32,
+    ) -> i32 {
         *c += 1;
-        if depth == 0 {
-            moves_heuristic(board)
+        let mut alpha = alpha;
+        let mut beta = beta;
+        if depth == 0 || *c >= MAX_COUNT {
+            HEURISTIC(board)
+        } else if depth > 3 {
+            if maxing {
+                let mut moves: Vec<Board> =
+                    board.white_moves_boards().map(|(_, board)| board).collect();
+                moves.sort_by_key(HEURISTIC);
+                moves
+                    .iter()
+                    .take(5)
+                    .map(|board| {
+                        let mm = minimax(board, depth - 1, !maxing, alpha, beta, c);
+                        alpha = alpha.max(mm);
+                        mm
+                    })
+                    .take_while(|mm| mm <= &beta)
+                    .max()
+                    .unwrap_or(i32::MIN)
+            } else {
+                let mut moves: Vec<Board> =
+                    board.black_moves_boards().map(|(_, board)| board).collect();
+                moves.sort_by_key(HEURISTIC);
+                moves
+                    .iter()
+                    .take(5)
+                    .map(|board| {
+                        let mm = minimax(board, depth - 1, !maxing, alpha, beta, c);
+                        beta = beta.min(mm);
+                        mm
+                    })
+                    .take_while(|mm| mm >= &alpha)
+                    .min()
+                    .unwrap_or(i32::MIN)
+            }
         } else if maxing {
             board
                 .white_moves_boards()
-                .map(|(_, board)| minimax(&board, depth - 1, !maxing, c))
+                .map(|(_, board)| {
+                    let mm = minimax(&board, depth - 1, !maxing, alpha, beta, c);
+                    alpha = alpha.max(mm);
+                    mm
+                })
+                .take_while(|mm| mm <= &beta)
                 .max()
                 .unwrap_or(i32::MIN)
         } else {
             board
                 .black_moves_boards()
-                .map(|(_, board)| minimax(&board, depth - 1, !maxing, c))
+                .map(|(_, board)| {
+                    let mm = minimax(&board, depth - 1, !maxing, alpha, beta, c);
+                    beta = beta.min(mm);
+                    mm
+                })
+                .take_while(|mm| mm >= &alpha)
                 .min()
                 .unwrap_or(i32::MAX)
         }
     }
-    let x = minimax(board, 1, true, &mut count);
+    let mut count = 0;
+    let mut depth = 0;
+    let mut result = HEURISTIC(board);
+    while count < MAX_COUNT {
+        eprintln!("  calculating depth {depth}");
+        let next_result = minimax(board, depth, false, i32::MIN, i32::MAX, &mut count);
+        if count < MAX_COUNT {
+            // If the count went too high, the last result skipped some calculations and is
+            // probably wrong. Don't use any results where the count limit was hit
+            result = next_result;
+        }
+        eprintln!("  got {result}");
+        depth += 1;
+    }
     eprintln!("TOTAL MINIIMAXING: {count}");
-    x
+    eprintln!("Evaluated as {result}");
+    result
 }
 
 pub fn heuristic_white<T, F>(board: &Board, heuristic: F) -> Option<(Move, Board)>

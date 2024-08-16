@@ -29,6 +29,7 @@ fn main() {
             board.apply_move(&Move::parse_notation(&input).expect("Failed to parse notation"));
         }
         eprintln!("{board}");
+        eprintln!("Cheecky little debug: {}", reachable_heuristic(&board));
         if args.black {
             if let Some((mov, new_board)) = heuristic_black(&board, moves_heuristic) {
                 println!("{}", mov.notation());
@@ -44,6 +45,7 @@ fn main() {
             board.apply_move(&Move::parse_notation(&input).expect("Failed to parse notation"));
         }
         eprintln!("{board}");
+        eprintln!("Cheecky little debug: {}", reachable_heuristic(&board));
     }
 }
 
