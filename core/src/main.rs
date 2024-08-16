@@ -16,7 +16,7 @@ fn main() {
     let mut board = Board::default();
     loop {
         if !args.black {
-            if let Some((mov, new_board)) = heuristic_white(&board, minimax_white_heuristic) {
+            if let Some((mov, new_board)) = fheuristic_white(&board, minimax_white_heuristic) {
                 println!("{}", mov.notation());
                 board = new_board;
             } else {
@@ -29,9 +29,9 @@ fn main() {
             board.apply_move(&Move::parse_notation(&input).expect("Failed to parse notation"));
         }
         eprintln!("{board}");
-        eprintln!("Cheecky little debug: {}", reachable_heuristic(&board));
+        eprintln!("Cheecky little debug: {}", minimax_white_heuristic(&board));
         if args.black {
-            if let Some((mov, new_board)) = heuristic_black(&board, moves_heuristic) {
+            if let Some((mov, new_board)) = fheuristic_black(&board, minimax_white_heuristic) {
                 println!("{}", mov.notation());
                 board = new_board;
             } else {
@@ -45,7 +45,7 @@ fn main() {
             board.apply_move(&Move::parse_notation(&input).expect("Failed to parse notation"));
         }
         eprintln!("{board}");
-        eprintln!("Cheecky little debug: {}", reachable_heuristic(&board));
+        eprintln!("Cheecky little debug: {}", minimax_white_heuristic(&board));
     }
 }
 

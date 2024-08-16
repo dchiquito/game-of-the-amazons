@@ -2,6 +2,7 @@ use lazy_static::lazy_static;
 use rand::seq::IteratorRandom;
 use std::{
     fmt::{Display, Formatter, Write},
+    mem::swap,
     ops::{Neg, Range},
 };
 
@@ -596,66 +597,121 @@ pub fn reachable_heuristic(board: &Board) -> i32 {
     white_cells - black_cells
 }
 
-pub fn minimax_white_heuristic(board: &Board) -> i32 {
-    const MAX_COUNT: i32 = 100000;
-    const HEURISTIC: fn(&Board) -> i32 = reachable_heuristic;
+#[allow(clippy::needless_range_loop)]
+pub fn better_reachable_heuristic(board: &Board) -> f64 {
+    let mut squares = [[0.0; 8]; 100];
+    let mut seeds = vec![];
+    let mut next_seeds = vec![]; // TODO capacity
+    for piece_idx in 0..8 {
+        seeds.clear();
+        seeds.push(board.pieces[piece_idx]);
+        let mut moves = 1.0;
+        while !seeds.is_empty() {
+            for seed in seeds.iter() {
+                for mov in board.reachable_squares(seed) {
+                    let mov_idx = usize::from(&mov);
+                    if squares[mov_idx][piece_idx] == 0.0 {
+                        squares[mov_idx][piece_idx] = moves;
+                        next_seeds.push(mov);
+                    }
+                }
+            }
+            swap(&mut seeds, &mut next_seeds);
+            next_seeds.clear();
+            moves += 1.0;
+        }
+    }
+    squares
+        .iter()
+        .map(|distances| {
+            let white_sum: f64 = distances[0..4]
+                .iter()
+                .map(|d| if *d != 0.0 { 1.0 / d } else { 0.0 })
+                .sum();
+            let black_sum: f64 = distances[4..8]
+                .iter()
+                .map(|d| if *d != 0.0 { 1.0 / d } else { 0.0 })
+                .sum();
+            if white_sum + black_sum != 0.0 {
+                (white_sum - black_sum) / (white_sum + black_sum)
+            } else {
+                0.0
+            }
+        })
+        .sum()
+}
+
+#[allow(clippy::upper_case_acronyms)]
+type MMT = f64;
+pub fn minimax_white_heuristic(board: &Board) -> MMT {
+    const MAX_COUNT: i32 = 10000;
+    const HEURISTIC: fn(&Board) -> MMT = better_reachable_heuristic;
     fn minimax(
         board: &Board,
         depth: usize,
         maxing: bool,
-        alpha: i32,
-        beta: i32,
+        alpha: MMT,
+        beta: MMT,
         c: &mut i32,
-    ) -> i32 {
+    ) -> MMT {
         *c += 1;
         let mut alpha = alpha;
         let mut beta = beta;
         if depth == 0 || *c >= MAX_COUNT {
             HEURISTIC(board)
-        } else if depth > 3 {
-            if maxing {
-                let mut moves: Vec<Board> =
-                    board.white_moves_boards().map(|(_, board)| board).collect();
-                moves.sort_by_key(HEURISTIC);
-                moves
-                    .iter()
-                    .take(5)
-                    .map(|board| {
-                        let mm = minimax(board, depth - 1, !maxing, alpha, beta, c);
-                        alpha = alpha.max(mm);
-                        mm
-                    })
-                    .take_while(|mm| mm <= &beta)
-                    .max()
-                    .unwrap_or(i32::MIN)
-            } else {
-                let mut moves: Vec<Board> =
-                    board.black_moves_boards().map(|(_, board)| board).collect();
-                moves.sort_by_key(HEURISTIC);
-                moves
-                    .iter()
-                    .take(5)
-                    .map(|board| {
-                        let mm = minimax(board, depth - 1, !maxing, alpha, beta, c);
-                        beta = beta.min(mm);
-                        mm
-                    })
-                    .take_while(|mm| mm >= &alpha)
-                    .min()
-                    .unwrap_or(i32::MIN)
-            }
+        // } else if false {
+        // if maxing {
+        //     let mut moves: Vec<(MMT, Board)> = board
+        //         .white_moves_boards()
+        //         .map(|(_, board)| (HEURISTIC(&board), board))
+        //         .collect();
+        //     moves.sort_by(|(a, _), (b, _)| a.total_cmp(b));
+        //     moves
+        //         .iter()
+        //         .take(5)
+        //         .map(|(_, board)| {
+        //             let mm = minimax(board, depth - 1, !maxing, alpha, beta, c);
+        //             alpha = alpha.max(mm);
+        //             mm
+        //         })
+        //         .take_while(|mm| mm <= &beta)
+        //         .max_by(|a, b| a.total_cmp(b))
+        //         .unwrap_or(MMT::MAX)
+        // } else {
+        //     let mut moves: Vec<(MMT, Board)> = board
+        //         .black_moves_boards()
+        //         .map(|(_, board)| (HEURISTIC(&board), board))
+        //         .collect();
+        //     moves.sort_by(|(a, _), (b, _)| a.total_cmp(b));
+        //     moves
+        //         .iter()
+        //         .take(5)
+        //         .map(|(_, board)| {
+        //             let mm = minimax(board, depth - 1, !maxing, alpha, beta, c);
+        //             beta = beta.min(mm);
+        //             mm
+        //         })
+        //         .take_while(|mm| mm >= &alpha)
+        //         .min_by(|a, b| a.total_cmp(b))
+        //         .unwrap_or(MMT::MIN)
+        // }
         } else if maxing {
+            // eprintln!(" MAX {depth} {alpha} {beta}");
             board
                 .white_moves_boards()
                 .map(|(_, board)| {
                     let mm = minimax(&board, depth - 1, !maxing, alpha, beta, c);
                     alpha = alpha.max(mm);
+                    // if alpha == 1000.0 {
+                    //     panic!("nooo {depth} {alpha} {beta}");
+                    // }
                     mm
                 })
                 .take_while(|mm| mm <= &beta)
-                .max()
-                .unwrap_or(i32::MIN)
+                .max_by(|a, b| a.total_cmp(b))
+                .unwrap_or(MMT::MAX)
         } else {
+            // eprintln!("  MIN {depth} {alpha} {beta}");
             board
                 .black_moves_boards()
                 .map(|(_, board)| {
@@ -664,8 +720,8 @@ pub fn minimax_white_heuristic(board: &Board) -> i32 {
                     mm
                 })
                 .take_while(|mm| mm >= &alpha)
-                .min()
-                .unwrap_or(i32::MAX)
+                .min_by(|a, b| a.total_cmp(b))
+                .unwrap_or(MMT::MIN)
         }
     }
     let mut count = 0;
@@ -673,7 +729,8 @@ pub fn minimax_white_heuristic(board: &Board) -> i32 {
     let mut result = HEURISTIC(board);
     while count < MAX_COUNT {
         eprintln!("  calculating depth {depth}");
-        let next_result = minimax(board, depth, false, i32::MIN, i32::MAX, &mut count);
+        let next_result = minimax(board, depth, false, MMT::MIN, MMT::MAX, &mut count);
+        // let next_result = minimax(board, depth, false, -9999.0, 9999.0, &mut count);
         if count < MAX_COUNT {
             // If the count went too high, the last result skipped some calculations and is
             // probably wrong. Don't use any results where the count limit was hit
@@ -682,7 +739,7 @@ pub fn minimax_white_heuristic(board: &Board) -> i32 {
         eprintln!("  got {result}");
         depth += 1;
     }
-    eprintln!("TOTAL MINIIMAXING: {count}");
+    eprintln!("TOOOOOOOOOTAL MINIIMAXING: {count}");
     eprintln!("Evaluated as {result}");
     result
 }
@@ -706,4 +763,25 @@ where
     board
         .black_moves_boards()
         .max_by_key(|(_, board)| -heuristic(board))
+}
+pub fn fheuristic_white<F>(board: &Board, heuristic: F) -> Option<(Move, Board)>
+where
+    F: Fn(&Board) -> f64,
+{
+    board
+        .white_moves_boards()
+        .map(|(mov, board)| (heuristic(&board), mov, board))
+        .max_by(|(a, _, _), (b, _, _)| a.total_cmp(b))
+        .map(|(_, mov, board)| (mov, board))
+}
+
+pub fn fheuristic_black<F>(board: &Board, heuristic: F) -> Option<(Move, Board)>
+where
+    F: Fn(&Board) -> f64,
+{
+    board
+        .black_moves_boards()
+        .map(|(mov, board)| (heuristic(&board), mov, board))
+        .min_by(|(a, _, _), (b, _, _)| a.total_cmp(b))
+        .map(|(_, mov, board)| (mov, board))
 }
