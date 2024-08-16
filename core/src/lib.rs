@@ -3,7 +3,8 @@ use rand::seq::IteratorRandom;
 use std::{
     fmt::{Display, Formatter, Write},
     mem::swap,
-    ops::{Neg, Range},
+    ops::Range,
+    time::{Duration, SystemTime},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -161,7 +162,7 @@ pub enum TileState {
     Arrow,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Move(pub Coord, pub Coord, pub Coord);
 impl Move {
     pub fn notation(&self) -> String {
@@ -182,6 +183,12 @@ impl Move {
             Coord::from(mov),
             Coord::from(arrow),
         ))
+    }
+}
+
+impl Display for Move {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.notation())
     }
 }
 
@@ -507,7 +514,11 @@ impl Display for Board {
         Ok(())
     }
 }
-
+impl std::fmt::Debug for Board {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self, f)
+    }
+}
 pub fn random_white(board: &Board) -> Option<Move> {
     board.black_moves().choose(&mut rand::thread_rng())
 }
@@ -641,24 +652,34 @@ pub fn better_reachable_heuristic(board: &Board) -> f64 {
         .sum()
 }
 
+// TODO best reachable heuristic:
+// factor in the number of paths to a square
+// if you can reach the whole board in 3 moves, but there is only one path to each of those
+// squares, then you have a severe choke point.
+
 #[allow(clippy::upper_case_acronyms)]
 type MMT = f64;
-pub fn minimax_white_heuristic(board: &Board) -> MMT {
-    const MAX_COUNT: i32 = 10000;
+pub fn minimax(board: &Board, is_white: bool) -> (Option<(Move, Board)>, MMT) {
     const HEURISTIC: fn(&Board) -> MMT = better_reachable_heuristic;
+    // const POLL_INTERVAL: usize = 1; // how many cycles to go between timer checks
+    //                                 // TODO terminate better
+    let start_time = SystemTime::now();
+    let timeout = start_time + Duration::from_secs(10);
     fn minimax(
         board: &Board,
         depth: usize,
         maxing: bool,
         alpha: MMT,
         beta: MMT,
-        c: &mut i32,
-    ) -> MMT {
+        c: &mut usize,
+        timeout: SystemTime,
+    ) -> (Option<(Move, Board)>, MMT) {
         *c += 1;
         let mut alpha = alpha;
         let mut beta = beta;
-        if depth == 0 || *c >= MAX_COUNT {
-            HEURISTIC(board)
+        if depth == 0 || SystemTime::now() > timeout {
+            // if depth == 0 || (*c % POLL_INTERVAL == 0 && SystemTime::now() > timeout) {
+            (None, HEURISTIC(board))
         // } else if false {
         // if maxing {
         //     let mut moves: Vec<(MMT, Board)> = board
@@ -699,89 +720,50 @@ pub fn minimax_white_heuristic(board: &Board) -> MMT {
             // eprintln!(" MAX {depth} {alpha} {beta}");
             board
                 .white_moves_boards()
-                .map(|(_, board)| {
-                    let mm = minimax(&board, depth - 1, !maxing, alpha, beta, c);
+                .map(|(mov, board)| {
+                    let (_, mm) = minimax(&board, depth - 1, !maxing, alpha, beta, c, timeout);
                     alpha = alpha.max(mm);
-                    // if alpha == 1000.0 {
-                    //     panic!("nooo {depth} {alpha} {beta}");
-                    // }
-                    mm
+                    (Some((mov, board)), mm)
                 })
-                .take_while(|mm| mm <= &beta)
-                .max_by(|a, b| a.total_cmp(b))
-                .unwrap_or(MMT::MAX)
+                .take_while(|(_, mm)| mm <= &beta)
+                .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                .unwrap_or((None, MMT::MAX))
         } else {
             // eprintln!("  MIN {depth} {alpha} {beta}");
             board
                 .black_moves_boards()
-                .map(|(_, board)| {
-                    let mm = minimax(&board, depth - 1, !maxing, alpha, beta, c);
+                .map(|(mov, board)| {
+                    let (_, mm) = minimax(&board, depth - 1, !maxing, alpha, beta, c, timeout);
                     beta = beta.min(mm);
-                    mm
+                    (Some((mov, board)), mm)
                 })
-                .take_while(|mm| mm >= &alpha)
-                .min_by(|a, b| a.total_cmp(b))
-                .unwrap_or(MMT::MIN)
+                .take_while(|(_, mm)| mm >= &alpha)
+                .min_by(|(_, a), (_, b)| a.total_cmp(b))
+                .unwrap_or((None, MMT::MIN))
         }
     }
     let mut count = 0;
     let mut depth = 0;
-    let mut result = HEURISTIC(board);
-    while count < MAX_COUNT {
+    let mut result = (None, HEURISTIC(board));
+    while SystemTime::now() < timeout {
         eprintln!("  calculating depth {depth}");
-        let next_result = minimax(board, depth, false, MMT::MIN, MMT::MAX, &mut count);
-        // let next_result = minimax(board, depth, false, -9999.0, 9999.0, &mut count);
-        if count < MAX_COUNT {
-            // If the count went too high, the last result skipped some calculations and is
-            // probably wrong. Don't use any results where the count limit was hit
+        let next_result = minimax(
+            board,
+            depth,
+            is_white,
+            MMT::MIN,
+            MMT::MAX,
+            &mut count,
+            timeout,
+        );
+        if SystemTime::now() > timeout {
+            // If we timed out, the last result skipped some calculations and is probably wrong
             result = next_result;
         }
-        eprintln!("  got {result}");
+        eprintln!("  got {result:?}");
         depth += 1;
     }
-    eprintln!("TOOOOOOOOOTAL MINIIMAXING: {count}");
-    eprintln!("Evaluated as {result}");
+    eprintln!("Called minimax {count} times up to depth {depth}");
+    eprintln!("Evaluated as {:?}", result.1);
     result
-}
-
-pub fn heuristic_white<T, F>(board: &Board, heuristic: F) -> Option<(Move, Board)>
-where
-    T: Ord,
-    F: Fn(&Board) -> T,
-{
-    board
-        .white_moves_boards()
-        .max_by_key(|(_, board)| heuristic(board))
-}
-
-pub fn heuristic_black<T, F>(board: &Board, heuristic: F) -> Option<(Move, Board)>
-where
-    T: Ord + Neg,
-    F: Fn(&Board) -> T,
-    <T as Neg>::Output: Ord,
-{
-    board
-        .black_moves_boards()
-        .max_by_key(|(_, board)| -heuristic(board))
-}
-pub fn fheuristic_white<F>(board: &Board, heuristic: F) -> Option<(Move, Board)>
-where
-    F: Fn(&Board) -> f64,
-{
-    board
-        .white_moves_boards()
-        .map(|(mov, board)| (heuristic(&board), mov, board))
-        .max_by(|(a, _, _), (b, _, _)| a.total_cmp(b))
-        .map(|(_, mov, board)| (mov, board))
-}
-
-pub fn fheuristic_black<F>(board: &Board, heuristic: F) -> Option<(Move, Board)>
-where
-    F: Fn(&Board) -> f64,
-{
-    board
-        .black_moves_boards()
-        .map(|(mov, board)| (heuristic(&board), mov, board))
-        .min_by(|(a, _, _), (b, _, _)| a.total_cmp(b))
-        .map(|(_, mov, board)| (mov, board))
 }
