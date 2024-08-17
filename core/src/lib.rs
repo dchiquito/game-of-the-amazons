@@ -216,7 +216,6 @@ impl Default for Board {
         ];
         // Set up an empty board
         let mut tiles = [TileState::Empty; 100];
-        let x: u128 = 9;
         // Put the pieces on it
         for w in pieces[0..4].iter() {
             let idx: usize = w.into();
