@@ -438,7 +438,6 @@ impl<'a> Iterator for ReachableIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.dir < 8 {
-            self.moves_in_dir = &MOVES[self.coord][self.dir];
             if self.idx < self.moves_in_dir.len() {
                 let mov = self.moves_in_dir[self.idx];
                 if self.board.tiles[usize::from(&mov)] == TileState::Empty {
@@ -448,6 +447,9 @@ impl<'a> Iterator for ReachableIterator<'a> {
             }
             // We have reached the edge of the board or encountered an obstruction
             self.dir += 1;
+            if self.dir < 8 {
+                self.moves_in_dir = &MOVES[self.coord][self.dir];
+            }
             self.idx = 0;
         }
         None
