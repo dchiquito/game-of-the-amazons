@@ -195,9 +195,9 @@ impl Display for Move {
 #[derive(Clone)]
 pub struct Board {
     // Track where the amazons are so we don't need to search the board for them
-    pieces: [Coord; 8],
+    pub pieces: [Coord; 8],
     // Track what state every square on the board is in
-    tiles: [TileState; 100],
+    pub tiles: [TileState; 100],
 }
 
 impl Default for Board {
@@ -663,20 +663,20 @@ const HEURISTIC: fn(&Board) -> MMT = better_reachable_heuristic;
 // const HEURISTIC: fn(&Board) -> MMT = moves_heuristic;
 const TIME_PER_TURN: Duration = Duration::from_secs(10);
 #[allow(clippy::upper_case_acronyms)]
-type MMT = f64;
-fn _minimax(
+pub type MMT = f64;
+pub fn _minimax(
     board: &Board,
     depth: usize,
     maxing: bool,
     alpha: MMT,
     beta: MMT,
     c: &mut usize,
-    timeout: SystemTime,
+    timeout: Option<SystemTime>,
 ) -> (Option<(Move, Board)>, MMT) {
     *c += 1;
     let mut alpha = alpha;
     let mut beta = beta;
-    if depth == 0 || SystemTime::now() > timeout {
+    if depth == 0 || (timeout.is_some() && SystemTime::now() > timeout.unwrap()) {
         // if depth == 0 || (*c % POLL_INTERVAL == 0 && SystemTime::now() > timeout) {
         (None, HEURISTIC(board))
     } else if depth > 111111 {
@@ -754,7 +754,7 @@ pub fn minimax(board: &Board, is_white: bool) -> (Option<(Move, Board)>, MMT) {
             MMT::MIN,
             MMT::MAX,
             &mut count,
-            timeout,
+            Some(timeout),
         );
         if SystemTime::now() < timeout {
             // IF we haven't timed out yet, then we know for sure we completely explored the tree

@@ -62,9 +62,9 @@ mod test {
         for a in all_coords.iter() {
             for b in all_coords.iter() {
                 for c in all_coords.iter() {
-                    let mov = Move(*a, *b, *c, board.clone());
+                    let mov = Move(*a, *b, *c);
                     let notation = mov.notation();
-                    let (aa, bb, cc) = Move::parse_notation(&notation).expect("no fails pls");
+                    let Move(aa, bb, cc) = Move::parse_notation(&notation).expect("no fails pls");
                     assert_eq!(a, &aa);
                     assert_eq!(b, &bb);
                     assert_eq!(c, &cc);
