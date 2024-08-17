@@ -623,11 +623,18 @@ pub fn better_reachable_heuristic(board: &Board) -> f64 {
         let mut moves = 1.0;
         while !seeds.is_empty() {
             for seed in seeds.iter() {
-                for mov in board.reachable_squares(seed) {
-                    let mov_idx = usize::from(&mov);
-                    if squares[mov_idx][piece_idx] == 0.0 {
-                        squares[mov_idx][piece_idx] = moves;
-                        next_seeds.push(mov);
+                for dir in 0..8 {
+                    let moves_in_dir = &MOVES[usize::from(seed)][dir];
+                    for mov in moves_in_dir {
+                        let mov_idx = usize::from(mov);
+                        if board.tiles[mov_idx] == TileState::Empty
+                            && squares[mov_idx][piece_idx] == 0.0
+                        {
+                            squares[mov_idx][piece_idx] = moves;
+                            next_seeds.push(*mov);
+                        } else {
+                            break;
+                        }
                     }
                 }
             }
