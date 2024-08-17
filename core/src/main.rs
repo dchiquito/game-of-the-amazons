@@ -1,6 +1,6 @@
 use amazons_core::*;
 use clap::Parser;
-use std::io;
+use std::{io, thread, time::Duration};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -28,7 +28,9 @@ fn main() {
             stdin.read_line(&mut input).expect("Error reading input");
             board.apply_move(&Move::parse_notation(&input).expect("Failed to parse notation"));
         }
+        thread::sleep(Duration::from_millis(1));
         eprintln!("{board}");
+        print_h(&board);
         if args.black {
             if let (Some((mov, new_board)), _h) = minimax(&board, false) {
                 println!("{}", mov.notation());
@@ -43,7 +45,9 @@ fn main() {
             eprintln!("Read line [{input}]");
             board.apply_move(&Move::parse_notation(&input).expect("Failed to parse notation"));
         }
+        thread::sleep(Duration::from_millis(1));
         eprintln!("{board}");
+        print_h(&board);
     }
 }
 

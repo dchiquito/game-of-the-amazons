@@ -216,6 +216,7 @@ impl Default for Board {
         ];
         // Set up an empty board
         let mut tiles = [TileState::Empty; 100];
+        let x: u128 = 9;
         // Put the pieces on it
         for w in pieces[0..4].iter() {
             let idx: usize = w.into();
@@ -637,11 +638,11 @@ pub fn better_reachable_heuristic(board: &Board) -> f64 {
         .map(|distances| {
             let white_sum: f64 = distances[0..4]
                 .iter()
-                .map(|d| if *d != 0.0 { 1.0 / d } else { 0.0 })
+                .map(|d: &f64| if *d != 0.0 { 1.0 / d.powi(2) } else { 0.0 })
                 .sum();
             let black_sum: f64 = distances[4..8]
                 .iter()
-                .map(|d| if *d != 0.0 { 1.0 / d } else { 0.0 })
+                .map(|d| if *d != 0.0 { 1.0 / d.powi(2) } else { 0.0 })
                 .sum();
             if white_sum + black_sum != 0.0 {
                 (white_sum - black_sum) / (white_sum + black_sum)
@@ -657,14 +658,15 @@ pub fn better_reachable_heuristic(board: &Board) -> f64 {
 // if you can reach the whole board in 3 moves, but there is only one path to each of those
 // squares, then you have a severe choke point.
 
+const HEURISTIC: fn(&Board) -> MMT = better_reachable_heuristic;
+const TIME_PER_TURN: Duration = Duration::from_secs(10);
 #[allow(clippy::upper_case_acronyms)]
 type MMT = f64;
 pub fn minimax(board: &Board, is_white: bool) -> (Option<(Move, Board)>, MMT) {
-    const HEURISTIC: fn(&Board) -> MMT = better_reachable_heuristic;
     // const POLL_INTERVAL: usize = 1; // how many cycles to go between timer checks
     //                                 // TODO terminate better
     let start_time = SystemTime::now();
-    let timeout = start_time + Duration::from_secs(10);
+    let timeout = start_time + TIME_PER_TURN;
     fn minimax(
         board: &Board,
         depth: usize,
@@ -680,44 +682,39 @@ pub fn minimax(board: &Board, is_white: bool) -> (Option<(Move, Board)>, MMT) {
         if depth == 0 || SystemTime::now() > timeout {
             // if depth == 0 || (*c % POLL_INTERVAL == 0 && SystemTime::now() > timeout) {
             (None, HEURISTIC(board))
-        // } else if false {
-        // if maxing {
-        //     let mut moves: Vec<(MMT, Board)> = board
-        //         .white_moves_boards()
-        //         .map(|(_, board)| (HEURISTIC(&board), board))
-        //         .collect();
-        //     moves.sort_by(|(a, _), (b, _)| a.total_cmp(b));
-        //     moves
-        //         .iter()
-        //         .take(5)
-        //         .map(|(_, board)| {
-        //             let mm = minimax(board, depth - 1, !maxing, alpha, beta, c);
-        //             alpha = alpha.max(mm);
-        //             mm
-        //         })
-        //         .take_while(|mm| mm <= &beta)
-        //         .max_by(|a, b| a.total_cmp(b))
-        //         .unwrap_or(MMT::MAX)
-        // } else {
-        //     let mut moves: Vec<(MMT, Board)> = board
-        //         .black_moves_boards()
-        //         .map(|(_, board)| (HEURISTIC(&board), board))
-        //         .collect();
-        //     moves.sort_by(|(a, _), (b, _)| a.total_cmp(b));
-        //     moves
-        //         .iter()
-        //         .take(5)
-        //         .map(|(_, board)| {
-        //             let mm = minimax(board, depth - 1, !maxing, alpha, beta, c);
-        //             beta = beta.min(mm);
-        //             mm
-        //         })
-        //         .take_while(|mm| mm >= &alpha)
-        //         .min_by(|a, b| a.total_cmp(b))
-        //         .unwrap_or(MMT::MIN)
-        // }
+        } else if depth > 1 {
+            if maxing {
+                let mut moves: Vec<(Option<(Move, Board)>, MMT)> = board
+                    .white_moves_boards()
+                    .map(|(mov, board)| {
+                        let (_, mm) = minimax(&board, depth - 1, !maxing, alpha, beta, c, timeout);
+                        alpha = alpha.max(mm);
+                        (Some((mov, board)), mm)
+                    })
+                    .collect();
+                moves.sort_by(|(_, a), (_, b)| a.total_cmp(b));
+                moves
+                    .into_iter()
+                    .take_while(|(_, mm)| mm <= &beta)
+                    .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                    .unwrap_or((None, MMT::MAX))
+            } else {
+                let mut moves: Vec<(Option<(Move, Board)>, MMT)> = board
+                    .black_moves_boards()
+                    .map(|(mov, board)| {
+                        let (_, mm) = minimax(&board, depth - 1, !maxing, alpha, beta, c, timeout);
+                        beta = beta.min(mm);
+                        (Some((mov, board)), mm)
+                    })
+                    .collect();
+                moves.sort_by(|(_, a), (_, b)| a.total_cmp(b));
+                moves
+                    .into_iter()
+                    .take_while(|(_, mm)| mm >= &alpha)
+                    .min_by(|(_, a), (_, b)| a.total_cmp(b))
+                    .unwrap_or((None, MMT::MIN))
+            }
         } else if maxing {
-            // eprintln!(" MAX {depth} {alpha} {beta}");
             board
                 .white_moves_boards()
                 .map(|(mov, board)| {
@@ -729,7 +726,6 @@ pub fn minimax(board: &Board, is_white: bool) -> (Option<(Move, Board)>, MMT) {
                 .max_by(|(_, a), (_, b)| a.total_cmp(b))
                 .unwrap_or((None, MMT::MAX))
         } else {
-            // eprintln!("  MIN {depth} {alpha} {beta}");
             board
                 .black_moves_boards()
                 .map(|(mov, board)| {
@@ -756,8 +752,9 @@ pub fn minimax(board: &Board, is_white: bool) -> (Option<(Move, Board)>, MMT) {
             &mut count,
             timeout,
         );
-        if SystemTime::now() > timeout {
-            // If we timed out, the last result skipped some calculations and is probably wrong
+        if SystemTime::now() < timeout {
+            // IF we haven't timed out yet, then we know for sure we completely explored the tree
+            // up to the current depth. We don't want to use a partial calculation.
             result = next_result;
         }
         eprintln!("  got {result:?}");
@@ -766,4 +763,66 @@ pub fn minimax(board: &Board, is_white: bool) -> (Option<(Move, Board)>, MMT) {
     eprintln!("Called minimax {count} times up to depth {depth}");
     eprintln!("Evaluated as {:?}", result.1);
     result
+}
+
+pub fn print_h(board: &Board) {
+    let mut squares = [[0.0; 8]; 100];
+    let mut seeds = vec![];
+    let mut next_seeds = vec![]; // TODO capacity
+    for piece_idx in 0..8 {
+        seeds.clear();
+        seeds.push(board.pieces[piece_idx]);
+        let mut moves = 1.0;
+        while !seeds.is_empty() {
+            for seed in seeds.iter() {
+                for mov in board.reachable_squares(seed) {
+                    let mov_idx = usize::from(&mov);
+                    if squares[mov_idx][piece_idx] == 0.0 {
+                        squares[mov_idx][piece_idx] = moves;
+                        next_seeds.push(mov);
+                    }
+                }
+            }
+            swap(&mut seeds, &mut next_seeds);
+            next_seeds.clear();
+            moves += 1.0;
+        }
+    }
+    let hs: Vec<f64> = squares
+        .iter()
+        .map(|distances| {
+            let white_sum: f64 = distances[0..4]
+                .iter()
+                .map(|d: &f64| if *d != 0.0 { 1.0 / d.powi(2) } else { 0.0 })
+                .sum();
+            let black_sum: f64 = distances[4..8]
+                .iter()
+                .map(|d| if *d != 0.0 { 1.0 / d.powi(2) } else { 0.0 })
+                .sum();
+            if white_sum + black_sum != 0.0 {
+                (white_sum - black_sum) / (white_sum + black_sum)
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    for i in (0..10).rev() {
+        for j in 0..10 {
+            let coord = (i * 10) + j;
+            eprint!("{:6.3} ", hs[coord]);
+        }
+        eprintln!();
+        eprintln!();
+    }
+    for i in 0..8 {
+        eprintln!(
+            "{i}: {}",
+            squares
+                .iter()
+                .map(|arr| arr[i])
+                .map(|d| if d != 0.0 { 1.0 / d.powi(2) } else { 0.0 })
+                .sum::<f64>()
+        );
+    }
+    eprintln!("{}", hs.iter().sum::<f64>());
 }
