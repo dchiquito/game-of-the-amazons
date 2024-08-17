@@ -419,6 +419,7 @@ pub struct ReachableIterator<'a> {
     board: &'a Board,
     coord: usize,
     dir: usize,
+    moves_in_dir: &'a Vec<Coord>,
     idx: usize,
 }
 impl<'a> ReachableIterator<'a> {
@@ -427,6 +428,7 @@ impl<'a> ReachableIterator<'a> {
             board,
             coord: usize::from(coord),
             dir: 0,
+            moves_in_dir: &MOVES[usize::from(coord)][0],
             idx: 0,
         }
     }
@@ -436,9 +438,9 @@ impl<'a> Iterator for ReachableIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.dir < 8 {
-            let moves_in_dir = &MOVES[self.coord][self.dir];
-            if self.idx < moves_in_dir.len() {
-                let mov = moves_in_dir[self.idx];
+            self.moves_in_dir = &MOVES[self.coord][self.dir];
+            if self.idx < self.moves_in_dir.len() {
+                let mov = self.moves_in_dir[self.idx];
                 if self.board.tiles[usize::from(&mov)] == TileState::Empty {
                     self.idx += 1;
                     return Some(mov);
@@ -526,9 +528,9 @@ pub fn random_black(board: &Board) -> Option<Move> {
     board.white_moves().choose(&mut rand::thread_rng())
 }
 
-pub fn moves_heuristic(board: &Board) -> i32 {
-    let white_moves = board.white_moves().count() as i32;
-    let black_moves = board.black_moves().count() as i32;
+pub fn moves_heuristic(board: &Board) -> f64 {
+    let white_moves = board.white_moves().count() as f64;
+    let black_moves = board.black_moves().count() as f64;
     white_moves - black_moves
 }
 
@@ -658,91 +660,94 @@ pub fn better_reachable_heuristic(board: &Board) -> f64 {
 // squares, then you have a severe choke point.
 
 const HEURISTIC: fn(&Board) -> MMT = better_reachable_heuristic;
+// const HEURISTIC: fn(&Board) -> MMT = moves_heuristic;
 const TIME_PER_TURN: Duration = Duration::from_secs(10);
 #[allow(clippy::upper_case_acronyms)]
 type MMT = f64;
+fn _minimax(
+    board: &Board,
+    depth: usize,
+    maxing: bool,
+    alpha: MMT,
+    beta: MMT,
+    c: &mut usize,
+    timeout: SystemTime,
+) -> (Option<(Move, Board)>, MMT) {
+    *c += 1;
+    let mut alpha = alpha;
+    let mut beta = beta;
+    if depth == 0 || SystemTime::now() > timeout {
+        // if depth == 0 || (*c % POLL_INTERVAL == 0 && SystemTime::now() > timeout) {
+        (None, HEURISTIC(board))
+    } else if depth > 111111 {
+        // TODO disabling this branch temporarily
+        if maxing {
+            let mut moves: Vec<(Option<(Move, Board)>, MMT)> = board
+                .white_moves_boards()
+                .map(|(mov, board)| {
+                    let (_, mm) = _minimax(&board, depth - 1, !maxing, alpha, beta, c, timeout);
+                    alpha = alpha.max(mm);
+                    (Some((mov, board)), mm)
+                })
+                .collect();
+            moves.sort_by(|(_, a), (_, b)| a.total_cmp(b));
+            moves
+                .into_iter()
+                .take_while(|(_, mm)| mm <= &beta)
+                .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                .unwrap_or((None, MMT::MAX))
+        } else {
+            let mut moves: Vec<(Option<(Move, Board)>, MMT)> = board
+                .black_moves_boards()
+                .map(|(mov, board)| {
+                    let (_, mm) = _minimax(&board, depth - 1, !maxing, alpha, beta, c, timeout);
+                    beta = beta.min(mm);
+                    (Some((mov, board)), mm)
+                })
+                .collect();
+            moves.sort_by(|(_, a), (_, b)| a.total_cmp(b));
+            moves
+                .into_iter()
+                .take_while(|(_, mm)| mm >= &alpha)
+                .min_by(|(_, a), (_, b)| a.total_cmp(b))
+                .unwrap_or((None, MMT::MIN))
+        }
+    } else if maxing {
+        board
+            .white_moves_boards()
+            .map(|(mov, board)| {
+                let (_, mm) = _minimax(&board, depth - 1, !maxing, alpha, beta, c, timeout);
+                alpha = alpha.max(mm);
+                (Some((mov, board)), mm)
+            })
+            .take_while(|(_, mm)| mm <= &beta)
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .unwrap_or((None, MMT::MAX))
+    } else {
+        board
+            .black_moves_boards()
+            .map(|(mov, board)| {
+                let (_, mm) = _minimax(&board, depth - 1, !maxing, alpha, beta, c, timeout);
+                beta = beta.min(mm);
+                (Some((mov, board)), mm)
+            })
+            .take_while(|(_, mm)| mm >= &alpha)
+            .min_by(|(_, a), (_, b)| a.total_cmp(b))
+            .unwrap_or((None, MMT::MIN))
+    }
+}
+
 pub fn minimax(board: &Board, is_white: bool) -> (Option<(Move, Board)>, MMT) {
     // const POLL_INTERVAL: usize = 1; // how many cycles to go between timer checks
     //                                 // TODO terminate better
     let start_time = SystemTime::now();
     let timeout = start_time + TIME_PER_TURN;
-    fn minimax(
-        board: &Board,
-        depth: usize,
-        maxing: bool,
-        alpha: MMT,
-        beta: MMT,
-        c: &mut usize,
-        timeout: SystemTime,
-    ) -> (Option<(Move, Board)>, MMT) {
-        *c += 1;
-        let mut alpha = alpha;
-        let mut beta = beta;
-        if depth == 0 || SystemTime::now() > timeout {
-            // if depth == 0 || (*c % POLL_INTERVAL == 0 && SystemTime::now() > timeout) {
-            (None, HEURISTIC(board))
-        } else if depth > 1 {
-            if maxing {
-                let mut moves: Vec<(Option<(Move, Board)>, MMT)> = board
-                    .white_moves_boards()
-                    .map(|(mov, board)| {
-                        let (_, mm) = minimax(&board, depth - 1, !maxing, alpha, beta, c, timeout);
-                        alpha = alpha.max(mm);
-                        (Some((mov, board)), mm)
-                    })
-                    .collect();
-                moves.sort_by(|(_, a), (_, b)| a.total_cmp(b));
-                moves
-                    .into_iter()
-                    .take_while(|(_, mm)| mm <= &beta)
-                    .max_by(|(_, a), (_, b)| a.total_cmp(b))
-                    .unwrap_or((None, MMT::MAX))
-            } else {
-                let mut moves: Vec<(Option<(Move, Board)>, MMT)> = board
-                    .black_moves_boards()
-                    .map(|(mov, board)| {
-                        let (_, mm) = minimax(&board, depth - 1, !maxing, alpha, beta, c, timeout);
-                        beta = beta.min(mm);
-                        (Some((mov, board)), mm)
-                    })
-                    .collect();
-                moves.sort_by(|(_, a), (_, b)| a.total_cmp(b));
-                moves
-                    .into_iter()
-                    .take_while(|(_, mm)| mm >= &alpha)
-                    .min_by(|(_, a), (_, b)| a.total_cmp(b))
-                    .unwrap_or((None, MMT::MIN))
-            }
-        } else if maxing {
-            board
-                .white_moves_boards()
-                .map(|(mov, board)| {
-                    let (_, mm) = minimax(&board, depth - 1, !maxing, alpha, beta, c, timeout);
-                    alpha = alpha.max(mm);
-                    (Some((mov, board)), mm)
-                })
-                .take_while(|(_, mm)| mm <= &beta)
-                .max_by(|(_, a), (_, b)| a.total_cmp(b))
-                .unwrap_or((None, MMT::MAX))
-        } else {
-            board
-                .black_moves_boards()
-                .map(|(mov, board)| {
-                    let (_, mm) = minimax(&board, depth - 1, !maxing, alpha, beta, c, timeout);
-                    beta = beta.min(mm);
-                    (Some((mov, board)), mm)
-                })
-                .take_while(|(_, mm)| mm >= &alpha)
-                .min_by(|(_, a), (_, b)| a.total_cmp(b))
-                .unwrap_or((None, MMT::MIN))
-        }
-    }
     let mut count = 0;
     let mut depth = 0;
     let mut result = (None, HEURISTIC(board));
     while SystemTime::now() < timeout {
         eprintln!("  calculating depth {depth}");
-        let next_result = minimax(
+        let next_result = _minimax(
             board,
             depth,
             is_white,
