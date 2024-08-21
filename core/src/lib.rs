@@ -650,6 +650,16 @@ pub fn reachable_heuristic(board: &Board) -> i32 {
 #[allow(clippy::needless_range_loop)]
 pub fn better_reachable_heuristic(board: &Board) -> f64 {
     let mut squares = [[0.0; 8]; 100];
+    // Mark all obstructed squares as worth -1 so we don't have to check the board in the critical
+    // loop. Both sides will be offset by the same amount, so it shouldn't impact the final
+    // evaluation.
+    for idx in 0..100 {
+        if board.tiles[idx] == TileState::Empty {
+            for piece_idx in 0..8 {
+                squares[idx][piece_idx] = -1.0;
+            }
+        }
+    }
     let mut seeds = vec![];
     let mut next_seeds = vec![]; // TODO capacity
     for piece_idx in 0..8 {
@@ -662,9 +672,7 @@ pub fn better_reachable_heuristic(board: &Board) -> f64 {
                 for dir in 0..8 {
                     let moves_in_dir = &all_moves[dir];
                     for mov_idx in moves_in_dir {
-                        if board.tiles[*mov_idx] == TileState::Empty
-                            && squares[*mov_idx][piece_idx] == 0.0
-                        {
+                        if squares[*mov_idx][piece_idx] == 0.0 {
                             squares[*mov_idx][piece_idx] = moves;
                             next_seeds.push(*mov_idx);
                         } else {
