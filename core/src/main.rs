@@ -57,7 +57,7 @@ mod test {
 
     #[test]
     fn test_notation() {
-        let all_coords: Vec<Coord> = (0..100).map(|idx: usize| Coord::from(idx)).collect();
+        let all_coords: Vec<Coord> = (0..100).collect();
         let board: Board = Default::default();
         for a in all_coords.iter() {
             for b in all_coords.iter() {

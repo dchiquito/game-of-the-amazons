@@ -39,7 +39,7 @@ fn reachable_benchmark(c: &mut Criterion) {
     c.bench_function("reachable from all squares", |b| {
         b.iter(|| {
             for coord in 0..100 {
-                for c in board.reachable_squares(&Coord::from(black_box(coord))) {
+                for c in board.reachable_squares(&black_box(coord)) {
                     black_box(c);
                 }
             }

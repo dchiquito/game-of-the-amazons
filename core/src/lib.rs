@@ -1,3 +1,4 @@
+use core::fmt;
 use lazy_static::lazy_static;
 use rand::seq::IteratorRandom;
 use std::{
@@ -62,9 +63,11 @@ impl Dim {
     }
 }
 
+pub type Coord = usize;
+
 #[derive(Clone, Copy, Eq, PartialEq)]
-pub struct Coord(pub Dim, pub Dim);
-impl Display for Coord {
+pub struct PrettyCoord(pub Dim, pub Dim);
+impl Display for PrettyCoord {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self.0 {
             Dim::A => "a",
@@ -93,27 +96,27 @@ impl Display for Coord {
         Ok(())
     }
 }
-impl std::fmt::Debug for Coord {
+impl std::fmt::Debug for PrettyCoord {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Display::fmt(self, f)
     }
 }
-impl From<&Coord> for usize {
-    fn from(coord: &Coord) -> Self {
+impl From<&PrettyCoord> for Coord {
+    fn from(coord: &PrettyCoord) -> Self {
         let col: usize = (&coord.0).into();
         let row: usize = (&coord.1).into();
         (row * 10) + col
     }
 }
-impl From<usize> for Coord {
+impl From<Coord> for PrettyCoord {
     fn from(idx: usize) -> Self {
         assert!(idx < 100);
         let row = idx % 10;
         let col = idx / 10;
-        Coord(row.into(), col.into())
+        PrettyCoord(row.into(), col.into())
     }
 }
-impl From<&str> for Coord {
+impl From<&str> for PrettyCoord {
     fn from(value: &str) -> Self {
         let mut s = value.chars();
         let row = s.next().expect("Invalid row");
@@ -144,13 +147,13 @@ impl From<&str> for Coord {
             "10" => Dim::J,
             _ => panic!("Invalid col"),
         };
-        Coord(row, col)
+        PrettyCoord(row, col)
     }
 }
 
 macro_rules! c {
     ($x:expr) => {
-        Coord::from(stringify!($x).as_ref())
+        Coord::from(&PrettyCoord::from(stringify!($x).as_ref()))
     };
 }
 
@@ -162,14 +165,19 @@ pub enum TileState {
     Arrow,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Move(pub Coord, pub Coord, pub Coord);
 impl Move {
     pub fn notation(&self) -> String {
         Self::notation_for(&self.0, &self.1, &self.2)
     }
     pub fn notation_for(piece: &Coord, mov: &Coord, arrow: &Coord) -> String {
-        format!("{}-{}/{}", piece, mov, arrow)
+        format!(
+            "{}-{}/{}",
+            PrettyCoord::from(*piece),
+            PrettyCoord::from(*mov),
+            PrettyCoord::from(*arrow)
+        )
     }
     pub fn parse_notation(notation: &str) -> Option<Move> {
         let mut iter = notation.trim().split('-');
@@ -179,9 +187,9 @@ impl Move {
         let mov = iter.next()?;
         let arrow = iter.next()?;
         Some(Move(
-            Coord::from(piece),
-            Coord::from(mov),
-            Coord::from(arrow),
+            Coord::from(&PrettyCoord::from(piece)),
+            Coord::from(&PrettyCoord::from(mov)),
+            Coord::from(&PrettyCoord::from(arrow)),
         ))
     }
 }
@@ -192,12 +200,19 @@ impl Display for Move {
     }
 }
 
+impl fmt::Debug for Move {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
 #[derive(Clone)]
 pub struct Board {
     // Track where the amazons are so we don't need to search the board for them
     pub pieces: [Coord; 8],
     // Track what state every square on the board is in
     pub tiles: [TileState; 100],
+    pub collisions: u128,
 }
 
 impl Default for Board {
@@ -217,20 +232,29 @@ impl Default for Board {
         // Set up an empty board
         let mut tiles = [TileState::Empty; 100];
         // Put the pieces on it
-        for w in pieces[0..4].iter() {
-            let idx: usize = w.into();
-            tiles[idx] = TileState::White;
+        for white_idx in pieces[0..4].iter() {
+            tiles[*white_idx] = TileState::White;
         }
-        for b in pieces[4..8].iter() {
-            let idx: usize = b.into();
-            tiles[idx] = TileState::Black;
+        for black_idx in pieces[4..8].iter() {
+            tiles[*black_idx] = TileState::Black;
         }
-        // Calculate the move lookup table
-        Self { pieces, tiles }
+        let mut board = Self {
+            pieces,
+            tiles,
+            collisions: 0,
+        };
+        for piece in pieces.iter() {
+            board.toggle_collision(*piece);
+        }
+        // set up the collisions board properly
+        board
     }
 }
 
 impl Board {
+    pub fn toggle_collision(&mut self, coord: usize) {
+        self.collisions ^= 1 << coord;
+    }
     pub fn reachable_squares(&self, coord: &Coord) -> ReachableIterator<'_> {
         ReachableIterator::new(self, coord)
     }
@@ -259,17 +283,20 @@ impl Board {
             .find(|idx: &usize| self.pieces[*idx] == piece_coord)
             .expect("No piece to move");
         // Clear the formerly occupied square
-        self.tiles[usize::from(&self.pieces[piece_index])] = TileState::Empty;
+        self.tiles[self.pieces[piece_index]] = TileState::Empty;
+        self.toggle_collision(self.pieces[piece_index]);
         // Move the piece
         self.pieces[piece_index] = move_coord;
+        self.toggle_collision(move_coord);
         // Mark the new square the appropriate color
-        self.tiles[usize::from(&move_coord)] = if piece_index < 4 {
+        self.tiles[move_coord] = if piece_index < 4 {
             TileState::White
         } else {
             TileState::Black
         };
         // Place the arrow
-        self.tiles[usize::from(&arrow_coord)] = TileState::Arrow;
+        self.tiles[arrow_coord] = TileState::Arrow;
+        self.toggle_collision(arrow_coord);
     }
 }
 
@@ -350,7 +377,7 @@ impl<'a> PieceMoveIterator<'a> {
         Self {
             board,
             piece_idx,
-            piece_start: usize::from(&board.pieces[piece_idx]),
+            piece_start: board.pieces[piece_idx],
             piece_dir: 0,
             piece_dist: 0,
             arrow_dir: 0,
@@ -367,14 +394,13 @@ impl<'a> Iterator for PieceMoveIterator<'a> {
             let moves_in_dir = &MOVES[self.piece_start][self.piece_dir];
             // Keep walking forward until we hit the edge of the board
             while self.piece_dist < moves_in_dir.len() {
-                let arrow_start = usize::from(&moves_in_dir[self.piece_dist]);
+                let arrow_start = moves_in_dir[self.piece_dist];
                 if self.board.tiles[arrow_start] == TileState::Empty {
                     // Keep trying directions to fire
                     while self.arrow_dir < 8 {
                         let shots_in_dir = &MOVES[arrow_start][self.arrow_dir];
                         if self.arrow_dist < shots_in_dir.len() {
                             let arrow = shots_in_dir[self.arrow_dist];
-                            let arrow = usize::from(&arrow);
                             // We are allowed to shoot through the formerly occupied square
                             if arrow == self.piece_start
                                 || self.board.tiles[arrow] == TileState::Empty
@@ -426,9 +452,9 @@ impl<'a> ReachableIterator<'a> {
     fn new(board: &'a Board, coord: &Coord) -> Self {
         Self {
             board,
-            coord: usize::from(coord),
+            coord: *coord,
             dir: 0,
-            moves_in_dir: &MOVES[usize::from(coord)][0],
+            moves_in_dir: &MOVES[*coord][0],
             idx: 0,
         }
     }
@@ -440,7 +466,7 @@ impl<'a> Iterator for ReachableIterator<'a> {
         while self.dir < 8 {
             if self.idx < self.moves_in_dir.len() {
                 let mov = self.moves_in_dir[self.idx];
-                if self.board.tiles[usize::from(&mov)] == TileState::Empty {
+                if self.board.tiles[mov] == TileState::Empty {
                     self.idx += 1;
                     return Some(mov);
                 }
@@ -459,45 +485,58 @@ impl<'a> Iterator for ReachableIterator<'a> {
 lazy_static! {
         static ref MOVES: Vec<[Vec<Coord>; 8]> = (0..100)
             .map(|idx| {
-                let coord = Coord::from(idx);
+                let coord = PrettyCoord::from(idx);
                 let left = coord.0.less_than();
                 let right = coord.0.greater_than();
                 let down = coord.1.less_than();
                 let up = coord.1.greater_than();
                 [
                     // Left
-                    left.iter().map(|&x| Coord(x, coord.1)).collect(),
+                    left.iter().map(|&x| Coord::from(&PrettyCoord(x, coord.1))).collect(),
                     // Up+Left
                     left.iter()
                         .zip(up.iter())
-                        .map(|(&x, &y)| Coord(x, y))
+                        .map(|(&x, &y)| Coord::from(&PrettyCoord(x, y)))
                         .collect(),
                     // Up
-                    up.iter().map(|&y| Coord(coord.0, y)).collect(),
+                    up.iter().map(|&y| Coord::from(&PrettyCoord(coord.0, y))).collect(),
                     // Up+Right
                     right
                         .iter()
                         .zip(up.iter())
-                        .map(|(&x, &y)| Coord(x, y))
+                        .map(|(&x, &y)| Coord::from(&PrettyCoord(x, y)))
                         .collect(),
                     // Right
-                    right.iter().map(|&x| Coord(x, coord.1)).collect(),
+                    right.iter().map(|&x| Coord::from(&PrettyCoord(x, coord.1))).collect(),
                     // Down+Right
                     right
                         .iter()
                         .zip(down.iter())
-                        .map(|(&x, &y)| Coord(x, y))
+                        .map(|(&x, &y)|Coord::from(& PrettyCoord(x, y)))
                         .collect(),
                     // Down
-                    down.iter().map(|&y| Coord(coord.0, y)).collect(),
+                    down.iter().map(|&y| Coord::from(&PrettyCoord(coord.0, y))).collect(),
                     // Down+Left
                     left.iter()
                         .zip(down.iter())
-                        .map(|(&x, &y)| Coord(x, y))
+                        .map(|(&x, &y)| Coord::from(&PrettyCoord(x, y)))
                         .collect(),
                 ]
             })
             .collect();
+    static ref MOVE_COLLISIONS: Vec<[u128; 8]> = MOVES.iter().map(|dirs| [
+        collisions(&dirs[0]),
+        collisions(&dirs[1]),
+        collisions(&dirs[2]),
+        collisions(&dirs[3]),
+        collisions(&dirs[4]),
+        collisions(&dirs[5]),
+        collisions(&dirs[6]),
+        collisions(&dirs[7]),
+    ]).collect();
+}
+fn collisions(coords: &[Coord]) -> u128 {
+    coords.iter().map(|c| 1 << c).sum()
 }
 
 impl Display for Board {
@@ -541,7 +580,6 @@ pub fn area_heuristic(board: &Board) -> i32 {
     let mut white_sum = 0;
     for piece in board.pieces[0..4].iter() {
         for reachable in board.reachable_squares(piece) {
-            let reachable = usize::from(&reachable);
             if !white_reachable[reachable] {
                 white_reachable[reachable] = true;
                 white_sum += 1;
@@ -552,7 +590,6 @@ pub fn area_heuristic(board: &Board) -> i32 {
     let mut black_sum = 0;
     for piece in board.pieces[4..8].iter() {
         for reachable in board.reachable_squares(piece) {
-            let reachable = usize::from(&reachable);
             if !black_reachable[reachable] {
                 black_reachable[reachable] = true;
                 black_sum += 1;
@@ -570,8 +607,8 @@ pub fn reachable_heuristic(board: &Board) -> i32 {
         Dunno,
     }
     let mut cells = [By::Dunno; 100];
-    let mut white_seeds: Vec<usize> = board.pieces[0..4].iter().map(usize::from).collect();
-    let mut black_seeds: Vec<usize> = board.pieces[4..8].iter().map(usize::from).collect();
+    let mut white_seeds: Vec<usize> = board.pieces[0..4].to_vec();
+    let mut black_seeds: Vec<usize> = board.pieces[4..8].to_vec();
     let mut moves = 1;
     let mut white_cells = 0;
     let mut black_cells = 0;
@@ -581,7 +618,6 @@ pub fn reachable_heuristic(board: &Board) -> i32 {
             // Check to make sure black didn't get to this spot at the same time
             if cells[*seed] != By::Both {
                 for mov in board.reachable_squares(&Coord::from(*seed)) {
-                    let mov = usize::from(&mov);
                     if cells[mov] == By::Dunno {
                         cells[mov] = By::White(moves);
                         new_white_seeds.push(mov);
@@ -594,7 +630,6 @@ pub fn reachable_heuristic(board: &Board) -> i32 {
         let mut new_black_seeds = Vec::with_capacity(20); // TODO what capacity
         for seed in black_seeds.iter() {
             for mov in board.reachable_squares(&Coord::from(*seed)) {
-                let mov = usize::from(&mov);
                 if cells[mov] == By::Dunno {
                     cells[mov] = By::Black(moves);
                     new_black_seeds.push(mov);
@@ -624,14 +659,13 @@ pub fn better_reachable_heuristic(board: &Board) -> f64 {
         while !seeds.is_empty() {
             for seed in seeds.iter() {
                 for dir in 0..8 {
-                    let moves_in_dir = &MOVES[usize::from(seed)][dir];
-                    for mov in moves_in_dir {
-                        let mov_idx = usize::from(mov);
-                        if board.tiles[mov_idx] == TileState::Empty
-                            && squares[mov_idx][piece_idx] == 0.0
+                    let moves_in_dir = &MOVES[*seed][dir];
+                    for mov_idx in moves_in_dir {
+                        if board.tiles[*mov_idx] == TileState::Empty
+                            && squares[*mov_idx][piece_idx] == 0.0
                         {
-                            squares[mov_idx][piece_idx] = moves;
-                            next_seeds.push(*mov);
+                            squares[*mov_idx][piece_idx] = moves;
+                            next_seeds.push(*mov_idx);
                         } else {
                             break;
                         }
@@ -788,11 +822,10 @@ pub fn print_h(board: &Board) {
         let mut moves = 1.0;
         while !seeds.is_empty() {
             for seed in seeds.iter() {
-                for mov in board.reachable_squares(seed) {
-                    let mov_idx = usize::from(&mov);
+                for mov_idx in board.reachable_squares(seed) {
                     if squares[mov_idx][piece_idx] == 0.0 {
                         squares[mov_idx][piece_idx] = moves;
-                        next_seeds.push(mov);
+                        next_seeds.push(mov_idx);
                     }
                 }
             }
