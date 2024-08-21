@@ -658,8 +658,9 @@ pub fn better_reachable_heuristic(board: &Board) -> f64 {
         let mut moves = 1.0;
         while !seeds.is_empty() {
             for seed in seeds.iter() {
+                let all_moves = &MOVES[*seed];
                 for dir in 0..8 {
-                    let moves_in_dir = &MOVES[*seed][dir];
+                    let moves_in_dir = &all_moves[dir];
                     for mov_idx in moves_in_dir {
                         if board.tiles[*mov_idx] == TileState::Empty
                             && squares[*mov_idx][piece_idx] == 0.0
